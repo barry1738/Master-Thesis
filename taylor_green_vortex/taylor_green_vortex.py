@@ -200,7 +200,7 @@ class Prediction:
             drop_last=True
         )
 
-        params_u_star = self.model.initialize_mlp()
+        params_u_star = self.model.initialize_mlp(multi=1.0)
         params_v_star = self.model.initialize_mlp()
 
          # Initialize the parameters
@@ -568,6 +568,19 @@ class Prediction:
                     )
                 )
 
+            u_star_bdy_rhs = vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
+                data_boundary[0], data_boundary[1], step * DT, "u"
+            )
+            v_star_bdy_rhs = vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
+                data_boundary[0], data_boundary[1], step * DT, "v"
+            )
+            u_star_bdy_rhs_test = vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
+                self.test_boundary[:, 0], self.test_boundary[:, 1], step * DT, "u"
+            )
+            v_star_bdy_rhs_test = vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
+                self.test_boundary[:, 0], self.test_boundary[:, 1], step * DT, "v"
+            )
+
             # 3d plot
             # fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
             # ax.scatter(
@@ -608,7 +621,7 @@ class Prediction:
                     params_u_star, data_domain[0], data_domain[1], u_star_rhs)
                 residual_boundary_eq = self.boundary_eq_residual(
                     params_u_star, data_boundary[0], data_boundary[1], 
-                    exact_sol(data_boundary[0], data_boundary[1], step*DT, "u"))
+                    u_star_bdy_rhs)
                 # Combine the residual
                 residual = torch.hstack(
                     (
@@ -630,39 +643,29 @@ class Prediction:
 
                 # Compute the loss function
                 loss_train[epoch + total_epoch] = (
-                    alpha * self.loss_main_eq(params_u_star, 
-                                              data_domain[0], 
-                                              data_domain[1], 
-                                              u_star_rhs)
-                    +
-                    beta * self.loss_boundary_eq(params_u_star, 
-                                                 data_boundary[0], 
-                                                 data_boundary[1], 
-                                                 vmap(exact_sol, 
-                                                      in_dims=(0, 0, None, None), 
-                                                      out_dims=0)(
-                                                          data_boundary[0], 
-                                                          data_boundary[1], 
-                                                          step*DT, "u"))
+                    alpha * self.loss_main_eq(
+                        params_u_star, data_domain[0], data_domain[1], u_star_rhs) 
+                    + 
+                    beta * self.loss_boundary_eq(
+                        params_u_star, data_boundary[0], data_boundary[1], u_star_bdy_rhs
+                    )
                 )
 
                 loss_test[epoch + total_epoch] = (
-                    self.loss_main_eq(params_u_star, 
-                                      self.test_domain[:, 0], 
-                                      self.test_domain[:, 1], 
-                                      u_star_rhs_test)
-                    +
-                    self.loss_boundary_eq(params_u_star, 
-                                          self.test_boundary[:, 0], 
-                                          self.test_boundary[:, 1], 
-                                          vmap(exact_sol, 
-                                               in_dims=(0, 0, None, None), 
-                                               out_dims=0)(
-                                                   self.test_boundary[:, 0], 
-                                                   self.test_boundary[:, 1], 
-                                                   step*DT, "u"))
+                    self.loss_main_eq(
+                        params_u_star,
+                        self.test_domain[:, 0],
+                        self.test_domain[:, 1],
+                        u_star_rhs_test,
+                    ) 
+                    + 
+                    self.loss_boundary_eq(
+                        params_u_star,
+                        self.test_boundary[:, 0],
+                        self.test_boundary[:, 1],
+                        u_star_bdy_rhs_test,
+                    )
                 )
-
                 # Update alpha and beta
                 if epoch % 500 == 0:
                     residual_params_alpha = grad(self.loss_main_eq, argnums=0)(
@@ -673,8 +676,7 @@ class Prediction:
                     )
                     residual_params_beta = grad(self.loss_boundary_eq, argnums=0)(
                         params_u_star, data_boundary[0], data_boundary[1], 
-                        vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            data_boundary[0], data_boundary[1], step*DT, "u")
+                        u_star_bdy_rhs
                     )
                     loss_boundary_deriv_params = torch.linalg.vector_norm(
                         self.model.flatten_params(residual_params_beta)
@@ -839,10 +841,9 @@ def main():
             error = torch.abs(
                 exact_sol(test_domain[:, 0], test_domain[:, 1], time, "u") - solution
             )
-            fig, ax = plt.subplots()
-            sca = ax.scatter(test_domain[:, 0], test_domain[:, 1], c=error)
+            fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+            sca = ax.scatter(test_domain[:, 0], test_domain[:, 1], solution, c=solution)
             plt.colorbar(sca)
-            ax.axis("square")
             plt.show()
 
 
