@@ -72,11 +72,8 @@ class Prediction:
     def __init__(self, model, solver, training_p, test_p, *, batch=1):
         self.model = model
         self.solver = solver
-        self.rff_spatial = model.rff_spatial
         self.batch = batch
 
-        print(f'rff_spatial = {self.rff_spatial}')
-        
         (
             self.training_domain,
             self.training_left_boundary,
@@ -131,7 +128,7 @@ class Prediction:
         row_size = points_x.size(0)
         col_size = torch.sum(torch.tensor([torch.add(weight.numel(), bias.numel()) 
                                            for weight, bias in params]))
-        jac = torch.zeros(row_size, col_size)
+        jac = torch.zeros(row_size, col_size, device=self.model.device)
         loc = 0
         for idx, (jac_w, jac_b) in enumerate(jacobian):
             jac[:, loc:loc+params[idx][0].numel()] = jac_w.view(points_x.size(0), -1)
@@ -147,7 +144,7 @@ class Prediction:
         row_size = points_x.size(0)
         col_size = torch.sum(torch.tensor([torch.add(weight.numel(), bias.numel()) 
                                            for weight, bias in params]))
-        jac = torch.zeros(row_size, col_size)
+        jac = torch.zeros(row_size, col_size, device=self.model.device)
         loc = 0
         for idx, (jac_w, jac_b) in enumerate(jacobian):
             jac[:, loc:loc+params[idx][0].numel()] = jac_w.view(points_x.size(0), -1)
@@ -571,11 +568,28 @@ class Prediction:
                     )
                 )
 
-            # # 3d plot
+            # 3d plot
             # fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-            # ax.scatter(self.test_domain[:, 0].cpu(), self.test_domain[:, 1].cpu(), u_star_rhs_test.cpu(), c=u_star_rhs_test.cpu())
+            # ax.scatter(
+            #     data_domain[0].cpu(),
+            #     data_domain[1].cpu(),
+            #     u_star_rhs.cpu(),
+            #     c=u_star_rhs.cpu(),
+            # )
             # plt.show()
 
+            # boundary_val = vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
+            #     data_boundary[0], data_boundary[1], step * DT, "u"
+            # )
+            # fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+            # ax.scatter(
+            #     data_boundary[0].cpu(),
+            #     data_boundary[1].cpu(),
+            #     boundary_val.cpu(),
+            #     c=boundary_val.cpu(),
+            # )
+            # plt.show()
+                
             for epoch in range(Niter):
                 # Compute each jacobian matrix
                 jac_main_eq = self.jacobian_main_eq(
@@ -596,10 +610,14 @@ class Prediction:
                     params_u_star, data_boundary[0], data_boundary[1], 
                     exact_sol(data_boundary[0], data_boundary[1], step*DT, "u"))
                 # Combine the residual
-                residual = torch.hstack((
-                    residual_main_eq * torch.sqrt(alpha / torch.tensor(data_domain[0].size(0))), 
-                    residual_boundary_eq * torch.sqrt(beta / torch.tensor(data_boundary[0].size(0)))
-                ))
+                residual = torch.hstack(
+                    (
+                        residual_main_eq
+                        * torch.sqrt(alpha / torch.tensor(data_domain[0].size(0))),
+                        residual_boundary_eq
+                        * torch.sqrt(beta / torch.tensor(data_boundary[0].size(0))),
+                    )
+                )
                 # print(f'residual size = {residual.size()}')
 
                 # Compute the update value of weight and bias
@@ -646,7 +664,7 @@ class Prediction:
                 )
 
                 # Update alpha and beta
-                if epoch % 50 == 0:
+                if epoch % 500 == 0:
                     residual_params_alpha = grad(self.loss_main_eq, argnums=0)(
                         params_u_star, data_domain[0], data_domain[1], u_star_rhs
                     )
@@ -693,7 +711,7 @@ class Prediction:
                         loss_train[epoch + total_epoch]
                         < loss_train[epoch + total_epoch - 1]
                     ):
-                        mu = torch.max(torch.tensor((mu / 5, 1e-12)))
+                        mu = torch.max(torch.tensor((mu / 3, 1e-12)))
                 elif (
                     loss_train[epoch + total_epoch]
                     / loss_train[epoch + total_epoch - 1]
@@ -736,9 +754,10 @@ class Prediction:
 def main():
     neuron_net = [2, 40, 1]
 
-    model = Model(net_layers=neuron_net, activation="sigmoid",
-                  rff_spatial=True, device=device_cpu)
-    solver = MatrixSolver(device=device_cpu)
+    model_device = device_cpu
+
+    model = Model(net_layers=neuron_net, activation="sigmoid", device=model_device)
+    solver = MatrixSolver(device=model_device)
 
     params_u0 = model.initialize_mlp()
     params_v0 = model.initialize_mlp()
@@ -749,34 +768,34 @@ def main():
     mesh_gen = CreateMesh()
     training_domain, training_left_bdy, training_right_bdy, \
     training_top_bdy, training_bottom_bdy = mesh_gen.create_mesh(
-        50, 50, 50, 50, 1000)
+        50, 50, 50, 50, 500)
     test_domain, test_left_bdy, test_right_bdy, \
     test_top_bdy, test_bottom_bdy = mesh_gen.create_mesh(
         1000, 1000, 1000, 1000, 10000)
     
-    fig, ax = plt.subplots()
-    ax.scatter(training_domain[:, 0].cpu(), training_domain[:, 1].cpu(), c='r')
-    ax.scatter(
-        torch.vstack(
-            (
-                training_left_bdy[:, 0],
-                training_top_bdy[:, 0],
-                training_right_bdy[:, 0],
-                training_bottom_bdy[:, 0],
-            )
-        ).cpu(),
-        torch.vstack(
-            (
-                training_left_bdy[:, 1],
-                training_top_bdy[:, 1],
-                training_right_bdy[:, 1],
-                training_bottom_bdy[:, 1],
-            )
-        ).cpu(),
-        c="b",
-    )
-    ax.axis("square")
-    plt.show()
+    # fig, ax = plt.subplots()
+    # ax.scatter(training_domain[:, 0].cpu(), training_domain[:, 1].cpu(), c='r')
+    # ax.scatter(
+    #     torch.vstack(
+    #         (
+    #             training_left_bdy[:, 0],
+    #             training_top_bdy[:, 0],
+    #             training_right_bdy[:, 0],
+    #             training_bottom_bdy[:, 0],
+    #         )
+    #     ).cpu(),
+    #     torch.vstack(
+    #         (
+    #             training_left_bdy[:, 1],
+    #             training_top_bdy[:, 1],
+    #             training_right_bdy[:, 1],
+    #             training_bottom_bdy[:, 1],
+    #         )
+    #     ).cpu(),
+    #     c="b",
+    # )
+    # ax.axis("square")
+    # plt.show()
     
     pred = Prediction(
         model,
@@ -802,9 +821,29 @@ def main():
         print(f'{step}, time = {time}')
         
         if step >= 2:
-            pred.learning_process(
+            params_u = pred.learning_process(
                 params_u0, params_v0, params_p0, params_u1, params_v1, step
             )
+
+            # convert the data to cpu
+            if model.device == device_gpu:
+                print("Converting the data to cpu ...")
+                params_u_cpu = model.unflatten_params(model.flatten_params(params_u).cpu())
+            else:
+                params_u_cpu = params_u
+
+            # plot the solution
+            solution = vmap(model.forward_2d, in_dims=(None, 0, 0), out_dims=0)(
+                params_u_cpu, test_domain[:, 0], test_domain[:, 1]
+            )
+            error = torch.abs(
+                exact_sol(test_domain[:, 0], test_domain[:, 1], time, "u") - solution
+            )
+            fig, ax = plt.subplots()
+            sca = ax.scatter(test_domain[:, 0], test_domain[:, 1], c=error)
+            plt.colorbar(sca)
+            ax.axis("square")
+            plt.show()
 
 
 if __name__ == "__main__":
