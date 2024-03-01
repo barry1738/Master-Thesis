@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.func import grad
+from torch.func import grad, vmap
 
 torch.set_default_dtype(torch.double)
 
@@ -134,3 +134,241 @@ class Model:
         # Calculate the mean square error
         mse = torch.sum(torch.square(diff))
         return mse
+
+
+def exact_sol(x, y, t, Re, type):
+    """calculate analytical solution
+    u(x,y,t) = -cos(πx)sin(πy)exp(-2π²t/RE)
+    v(x,y,t) =  sin(πx)cos(πy)exp(-2π²t/RE)
+    p(x,y,t) = -0.25(cos(2πx)+cos(2πy))exp(-4π²t/RE)
+    """
+    match type:
+        case "u":
+            exp_val = torch.tensor([-2 * torch.pi**2 * t / Re])
+            func = (
+                -torch.cos(torch.pi * x) * torch.sin(torch.pi * y) * torch.exp(exp_val)
+            )
+            return func[0]
+        case "v":
+            exp_val = torch.tensor([-2 * torch.pi**2 * t / Re])
+            func = (
+                torch.sin(torch.pi * x) * torch.cos(torch.pi * y) * torch.exp(exp_val)
+            )
+            return func[0]
+        case "p":
+            exp_val = torch.tensor([-4 * torch.pi**2 * t / Re])
+            func = (
+                -0.25
+                * (torch.cos(2 * torch.pi * x) + torch.cos(2 * torch.pi * y))
+                * torch.exp(exp_val)
+            )
+            return func[0]
+        
+
+def compute_u_star_rhs(model, params_u0, params_u1, params_v0, params_v1, 
+                       params_p1, points_x, points_y, step, *, Dt=0.01, Re=400.0):
+    """ Compute the right-hand side of the u_star equation """
+
+    # Compute the right-hand side of the u_star equation
+    if step == 2:
+        u_star_rhs = (
+            + 4 * vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                points_x, points_y, Dt, Re, "u")
+            - vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                points_x, points_y, 0.0, Re, "u")
+            - 2 * (2 * Dt) * (
+                  vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "u")
+                * vmap(grad(exact_sol, 0), in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "u")
+                + vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "v")
+                * vmap(grad(exact_sol, 1), in_dims=(0, 0, None, None, None),out_dims=0)(
+                    points_x, points_y, Dt, Re, "u")
+            )
+            + (2 * Dt) * (
+                  vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, 0.0, Re, "u")
+                * vmap( grad(exact_sol, 0), in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, 0.0, Re, "u")
+                + vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, 0.0, Re, "v")
+                * vmap(grad(exact_sol, 1), in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, 0.0, Re, "u")
+            )
+            - (2 * Dt) * (
+                vmap(grad(exact_sol, argnums=0), in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "p")
+            )
+        )
+
+        v_star_rhs = (
+            + 4 * vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                points_x, points_y, Dt, Re, "v")
+            - vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                points_x, points_y, 0.0, Re, "v")
+            - 2 * (2 * Dt) * (
+                  vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "u")
+                * vmap(grad(exact_sol, 0), in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "v")
+                + vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "v")
+                * vmap(grad(exact_sol, 1), in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "v")
+            )
+            + (2 * Dt) * (
+                  vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, 0.0, Re, "u")
+                * vmap(grad(exact_sol, 0), in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, 0.0, Re, "v")
+                + vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, 0.0, Re, "v")
+                * vmap(grad(exact_sol, 1), in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, 0.0, Re, "v")
+            )
+            - (2 * Dt) * (
+                vmap(grad(exact_sol, 1), in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "p")
+            )
+        )
+
+    elif step == 3:
+        u_star_rhs = (
+            + 4 * vmap(model.forward_2d, in_dims=(None, 0, 0), out_dims=0)(
+                params_u1, points_x, points_y)
+            - vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                points_x, points_y, Dt, Re, "u")
+            - 2 * (2 * Dt) * (
+                  vmap(model.forward_2d, in_dims=(None, 0, 0), out_dims=0)(
+                    params_u1, points_x, points_y)
+                * vmap(model.forward_2d_dx, in_dims=(None, 0, 0), out_dims=0)(
+                    params_u1, points_x, points_y)
+                + vmap(model.forward_2d, in_dims=(None, 0, 0), out_dims=0)(
+                    params_v1, points_x, points_y)
+                * vmap(model.forward_2d_dy, in_dims=(None, 0, 0), out_dims=0)(
+                    params_u1, points_x, points_y)
+            )
+            + (2 * Dt) * (
+                vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "u")
+                * vmap( grad(exact_sol, 0), in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "u")
+                + vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "v")
+                * vmap(grad(exact_sol, 1), in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "u")
+            )
+            - (2 * Dt) * (
+                vmap(model.forward_2d_dx, in_dims=(None, 0, 0), out_dims=0)(
+                    params_p1, points_x, points_y)
+            )
+        )
+
+        v_star_rhs = (
+            + 4 * vmap(model.forward_2d, in_dims=(None, 0, 0), out_dims=0)(
+                params_v1, points_x, points_y)
+            - vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                points_x, points_y, Dt, Re, "v")
+            - 2 * (2 * Dt) * (
+                  vmap(model.forward_2d, in_dim=(None, 0, 0), out_dim=0)(
+                    params_u1, points_x, points_y)
+                * vmap(model.forward_2d_dx, in_dim=(None, 0, 0), out_dim=0)(
+                    params_v1, points_x, points_y)
+                + vmap(model.forward_2d, in_dim=(None, 0, 0), out_dim=0)(
+                    params_v1, points_x, points_y)
+                * vmap(model.forward_2d_dy, in_dim=(None, 0, 0), out_dim=0)(
+                    params_v1, points_x, points_y)
+            )
+            + (2 * Dt) * (
+                  vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "u")
+                * vmap(grad(exact_sol, 0), in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "v")
+                + vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "v")
+                * vmap(grad(exact_sol, 1), in_dims=(0, 0, None, None, None), out_dims=0)(
+                    points_x, points_y, Dt, Re, "v")
+            )
+            - (2 * Dt) * (
+                vmap(model.forward_2d_dy, in_dim=(None, 0, 0), out_dim=0)(
+                    params_p1, points_x, points_y)
+            )
+        )
+
+    else:
+        u_star_rhs = (
+            + 4 * vmap(model.forward_2d, in_dim=(None, 0, 0), out_dim=0)(
+                params_u1, points_x, points_y)
+            - vmap(model.forward_2d, in_dim=(None, 0, 0), out_dim=0)(
+                params_u0, points_x, points_y)
+            - 2 * (2 * Dt) * (
+                vmap(model.forward_2d, in_dim=(None, 0, 0), out_dim=0)(
+                    params_u1, points_x, points_y)
+                * vmap(model.forward_2d_dx, in_dim=(None, 0, 0), out_dim=0)(
+                    params_u1, points_x, points_y)
+                + vmap(model.forward_2d, in_dim=(None, 0, 0), out_dim=0)(
+                    params_v1, points_x, points_y)
+                * vmap(model.forward_2d_dy, in_dim=(None, 0, 0), out_dim=0)(
+                    params_u1, points_x, points_y)
+            )
+            + (2 * Dt) * (
+                vmap(model.forward_2d, in_dim=(None, 0, 0), out_dim=0)(
+                    params_u0, points_x, points_y)
+                * vmap(model.forward_2d_dx, in_dim=(None, 0, 0), out_dim=0)(
+                    params_u0, points_x, points_y)
+                + vmap(model.forward_2d, in_dim=(None, 0, 0), out_dim=0)(
+                    params_v0, points_x, points_y)
+                * vmap(model.forward_2d_dy, in_dim=(None, 0, 0), out_dim=0)(
+                    params_u0, points_x, points_y)
+            )
+            - (2 * Dt) * (
+                vmap(model.forward_2d_dx, in_dim=(None, 0, 0), out_dim=0)(
+                    params_p1, points_x, points_y)
+            )
+        )
+
+        v_star_rhs = (
+            + 4 * vmap(model.forward_2d, in_dims=(None, 0, 0), out_dims=0)(
+                params_v1, points_x, points_y)
+            - vmap(model.forward_2d, in_dims=(None, 0, 0), out_dims=0)(
+                params_v0, points_x, points_y)
+            - 2 * (2 * Dt) * (
+                vmap(model.forward_2d, in_dims=(None, 0, 0), out_dims=0)(
+                    params_u1, points_x, points_y)
+                * vmap(model.forward_2d_dx, in_dims=(None, 0, 0), out_dims=0)(
+                    params_v1, points_x, points_y)
+                + vmap(model.forward_2d, in_dims=(None, 0, 0), out_dims=0)(
+                    params_v1, points_x, points_y)
+                * vmap(model.forward_2d_dy, in_dims=(None, 0, 0), out_dims=0)(
+                    params_v1, points_x, points_y)
+            )
+            + (2 * Dt) * (
+                vmap(model.forward_2d, in_dims=(None, 0, 0), out_dims=0)(
+                    params_u0, points_x, points_y)
+                * vmap(model.forward_2d_dx, in_dims=(None, 0, 0), out_dims=0)(
+                    params_v0, points_x, points_y)
+                + vmap(model.forward_2d, in_dims=(None, 0, 0), out_dims=0)(
+                    params_v0, points_x, points_y)
+                * vmap(model.forward_2d_dy, in_dims=(None, 0, 0), out_dims=0)(
+                    params_v0, points_x, points_y)
+            )
+            - (2 * Dt) * (
+                vmap(model.forward_2d_dy, in_dims=(None, 0, 0), out_dims=0)(
+                    params_p1, points_x, points_y)
+            )
+        )
+    
+    return u_star_rhs, v_star_rhs
+
+
+def compute_u_star_bdy_value(points_x, points_y, time, Re):
+    """ Compute the boundary value of u_star """
+
+    # Compute the boundary value of u_star
+    u_star_bdy_rhs = vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+        points_x, points_y, time, Re, "u")
+    v_star_bdy_rhs = vmap(exact_sol, in_dims=(0, 0, None, None, None), out_dims=0)(
+        points_x, points_y, time, Re, "v")
+
+    return u_star_bdy_rhs, v_star_bdy_rhs

@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import torch.utils.data as Data
 from torch.func import jacrev, vmap, grad
 from utilities import Model, MatrixSolver
+from utilities import exact_sol, compute_u_star_rhs, compute_u_star_bdy_value
 from mesh_generator import CreateMesh
 
 # Check if the directory exists
@@ -43,30 +44,6 @@ torch.set_default_dtype(torch.float64)
 RE = 400
 DT = 0.01
 
-
-def exact_sol(x, y, t, type):
-    ''' calculate analytical solution
-        u(x,y,t) = -cos(πx)sin(πy)exp(-2π²t/RE)
-        v(x,y,t) =  sin(πx)cos(πy)exp(-2π²t/RE)
-        p(x,y,t) = -0.25(cos(2πx)+cos(2πy))exp(-4π²t/RE)
-    '''
-    match type:
-        case 'u':
-            exp_val = torch.tensor([-2 * torch.pi**2 * t / RE])
-            func = - torch.cos(torch.pi * x) * \
-                torch.sin(torch.pi * y) * torch.exp(exp_val)
-            return func[0]
-        case 'v':
-            exp_val = torch.tensor([-2 * torch.pi**2 * t / RE])
-            func = torch.sin(torch.pi * x) * \
-                torch.cos(torch.pi * y) * torch.exp(exp_val)
-            return func[0]
-        case 'p':
-            exp_val = torch.tensor([-4 * torch.pi**2 * t / RE])
-            func = - 0.25 * (torch.cos(2 * torch.pi * x) +
-                             torch.cos(2 * torch.pi * y)) * torch.exp(exp_val)
-            return func[0]
-        
 
 class Prediction:
     def __init__(self, model, solver, training_p, test_p, *, batch=1):
@@ -201,9 +178,9 @@ class Prediction:
         )
 
         params_u_star = self.model.initialize_mlp(multi=1.0)
-        params_v_star = self.model.initialize_mlp()
+        params_v_star = self.model.initialize_mlp(multi=1.0)
 
-         # Initialize the parameters
+        # Initialize the parameters
         Niter = 10**4
         tol = 1e-10
         total_epoch = 0
@@ -225,361 +202,30 @@ class Prediction:
             alpha = torch.tensor(1.0, device=self.model.device)
             beta = torch.tensor(1.0, device=self.model.device)
 
-            if step == 2:
-                # u_star_rhs = 4*u1 - u0 - 4*DT*(u1*dx(u1) + v1*dy(u1)) + 
-                #              2*DT*(u0*dx(u0) + v0*dy(u0)) - 2*DT*dx(p0)
-                # v_star_rhs = 4*v1 - v0 - 4*DT*(u1*dx(v1) + v1*dy(v1)) +
-                #              2*DT*(u0*dx(v0) + v0*dy(v0)) - 2*DT*dy(p0)
-                u_star_rhs = (
-                    +(
-                        4
-                        * vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            data_domain[0], data_domain[1], DT, "u"
-                        )
-                        - vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            data_domain[0], data_domain[1], 0.0, "u"
-                        )
-                    )
-                    - 2
-                    * (2 * DT)
-                    * (
-                        vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            data_domain[0], data_domain[1], DT, "u"
-                        )
-                        * vmap(
-                            grad(exact_sol, argnums=0),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(data_domain[0], data_domain[1], DT, "u")
-                        + vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            data_domain[0], data_domain[1], DT, "v"
-                        )
-                        * vmap(
-                            grad(exact_sol, argnums=1),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(data_domain[0], data_domain[1], DT, "u")
-                    )
-                    + (2 * DT)
-                    * (
-                        vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            data_domain[0], data_domain[1], 0.0, "u"
-                        )
-                        * vmap(
-                            grad(exact_sol, argnums=0),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(data_domain[0], data_domain[1], 0.0, "u")
-                        + vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            data_domain[0], data_domain[1], 0.0, "v"
-                        )
-                        * vmap(
-                            grad(exact_sol, argnums=1),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(data_domain[0], data_domain[1], 0.0, "u")
-                    )
-                    - (2 * DT)
-                    * (
-                        vmap(
-                            grad(exact_sol, argnums=0),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(data_domain[0], data_domain[1], DT, "p")
-                    )
-                )
+            u_star_rhs, v_star_rhs = compute_u_star_rhs(self.model,
+                params_u0, params_v0, params_p0, params_u1, params_v1, 
+                data_domain[0], data_domain[1], step)
+            u_star_rhs_test, v_star_rhs_test = compute_u_star_rhs(self.model,
+                params_u0, params_v0, params_p0, params_u1, params_v1,
+                self.test_domain[:, 0], self.test_domain[:, 1], step)
+            u_star_bdy_rhs, v_star_bdy_rhs = compute_u_star_bdy_value(
+                data_boundary[0], data_boundary[1], step * DT, RE)
+            u_star_bdy_rhs_test, v_star_bdy_rhs_test = compute_u_star_bdy_value(
+                self.test_boundary[:, 0], self.test_boundary[:, 1], step * DT, RE)
 
-                v_star_rhs = (
-                    + (
-                        4 * vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            data_domain[0], data_domain[1], DT, "v")
-                        -
-                        vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            data_domain[0], data_domain[1], 0.0, "v")
-                    )
-                    - 2 * (2 * DT) * (
-                        vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            data_domain[0], data_domain[1], DT, "u") 
-                        * vmap(grad(exact_sol, argnums=0), 
-                               in_dims=(0, 0, None, None), out_dims=0)(
-                                   data_domain[0], data_domain[1], DT, "v")  
-                        + 
-                        vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            data_domain[0], data_domain[1], DT, "v")  
-                        * 
-                        vmap(grad(exact_sol, argnums=1), 
-                               in_dims=(0, 0, None, None), out_dims=0)(
-                                   data_domain[0], data_domain[1], DT, "v")
-                    )
-                    + (2 * DT) * (
-                        vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            data_domain[0], data_domain[1], 0.0, "u") 
-                        * vmap(grad(exact_sol, argnums=0), 
-                               in_dims=(0, 0, None, None), out_dims=0)(
-                                   data_domain[0], data_domain[1], 0.0, "v")  
-                        + 
-                        vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            data_domain[0], data_domain[1], 0.0, "v")  
-                        * 
-                        vmap(grad(exact_sol, argnums=1), 
-                               in_dims=(0, 0, None, None), out_dims=0)(
-                                   data_domain[0], data_domain[1], 0.0, "v")
-                    )
-                    - (2 * DT) * (
-                        vmap(grad(exact_sol, argnums=1),
-                                in_dims=(0, 0, None, None), out_dims=0)(
-                                    data_domain[0], data_domain[1], DT, "p")
-                    )
-                )
 
-                u_star_rhs_test = (
-                    + (
-                        4 * vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            self.test_domain[:, 0], self.test_domain[:, 1], DT, "u"
-                        )
-                        - vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            self.test_domain[:, 0], self.test_domain[:, 1], 0.0, "u"
-                        )
-                    )
-                    - 2 * (2 * DT) * (
-                        vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            self.test_domain[:, 0], self.test_domain[:, 1], DT, "u"
-                        )
-                        * vmap(
-                            grad(exact_sol, argnums=0),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(self.test_domain[:, 0], self.test_domain[:, 1], DT, "u")
-                        + vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            self.test_domain[:, 0], self.test_domain[:, 1], DT, "v"
-                        )
-                        * vmap(
-                            grad(exact_sol, argnums=1),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(self.test_domain[:, 0], self.test_domain[:, 1], DT, "u")
-                    )
-                    + (2 * DT) * (
-                        vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            self.test_domain[:, 0], self.test_domain[:, 1], 0.0, "u"
-                        )
-                        * vmap(
-                            grad(exact_sol, argnums=0),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(self.test_domain[:, 0], self.test_domain[:, 1], 0.0, "u")
-                        + vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            self.test_domain[:, 0], self.test_domain[:, 1], 0.0, "v"
-                        )
-                        * vmap(
-                            grad(exact_sol, argnums=1),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(self.test_domain[:, 0], self.test_domain[:, 1], 0.0, "u")
-                    )
-                    - (2 * DT) * (
-                        vmap(
-                            grad(exact_sol, argnums=0),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(self.test_domain[:, 0], self.test_domain[:, 1], DT, "p")
-                    )
-                )
-
-                v_star_rhs_test = (
-                    +(
-                        4
-                        * vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            self.test_domain[:, 0], self.test_domain[:, 1], DT, "v"
-                        )
-                        - vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            self.test_domain[:, 0], self.test_domain[:, 1], 0.0, "v"
-                        )
-                    )
-                    - 2
-                    * (2 * DT)
-                    * (
-                        vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            self.test_domain[:, 0], self.test_domain[:, 1], DT, "u"
-                        )
-                        * vmap(
-                            grad(exact_sol, argnums=0),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(self.test_domain[:, 0], self.test_domain[:, 1], DT, "v")
-                        + vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            self.test_domain[:, 0], self.test_domain[:, 1], DT, "v"
-                        )
-                        * vmap(
-                            grad(exact_sol, argnums=1),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(self.test_domain[:, 0], self.test_domain[:, 1], DT, "v")
-                    )
-                    + (2 * DT)
-                    * (
-                        vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            self.test_domain[:, 0], self.test_domain[:, 1], 0.0, "u"
-                        )
-                        * vmap(
-                            grad(exact_sol, argnums=0),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(self.test_domain[:, 0], self.test_domain[:, 1], 0.0, "v")
-                        + vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                            self.test_domain[:, 0], self.test_domain[:, 1], 0.0, "v"
-                        )
-                        * vmap(
-                            grad(exact_sol, argnums=1),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(self.test_domain[:, 0], self.test_domain[:, 1], 0.0, "v")
-                    )
-                    - (2 * DT)
-                    * (
-                        vmap(
-                            grad(exact_sol, argnums=1),
-                            in_dims=(0, 0, None, None),
-                            out_dims=0,
-                        )(self.test_domain[:, 0], self.test_domain[:, 1], DT, "p")
-                    )
-                )
-
-            else:
-                # u_star_rhs
-                u_star_rhs = (
-                    4 * self.model.forward_2d(params_u1, data_domain[0], data_domain[1])
-                    - self.model.forward_2d(params_u0, data_domain[0], data_domain[1])
-                    - 4 * DT * (
-                        self.model.forward_2d(params_u1, data_domain[0], data_domain[1])
-                        * self.model.forward_2d_dx(params_u1, data_domain[0], data_domain[1])
-                        +
-                        self.model.forward_2d(params_v1, data_domain[0], data_domain[1])
-                        * self.model.forward_2d_dy(params_u1, data_domain[0], data_domain[1])
-                    )
-                    + 2 * DT * (
-                        self.model.forward_2d(params_u0, data_domain[0], data_domain[1])
-                        * self.model.forward_2d_dx(params_u0, data_domain[0], data_domain[1])
-                        +
-                        self.model.forward_2d(params_v0, data_domain[0], data_domain[1])
-                        * self.model.forward_2d_dy(params_u0, data_domain[0], data_domain[1])
-                    )
-                    - 2 * DT * self.model.forward_2d_dx(params_p0, data_domain[0], data_domain[1])
-                )
-
-                # v_star_rhs
-                v_star_rhs = (
-                    4 * self.model.forward_2d(params_v1, data_domain[0], data_domain[1])
-                    - self.model.forward_2d(params_v0, data_domain[0], data_domain[1])
-                    - 4 * DT * (
-                        self.model.forward_2d(params_u1, data_domain[0], data_domain[1])
-                        * self.model.forward_2d_dx(params_v1, data_domain[0], data_domain[1])
-                        +
-                        self.model.forward_2d(params_v1, data_domain[0], data_domain[1])
-                        * self.model.forward_2d_dy(params_v1, data_domain[0], data_domain[1])
-                    )
-                    + 2 * DT * (
-                        self.model.forward_2d(params_u0, data_domain[0], data_domain[1])
-                        * self.model.forward_2d_dx(params_v0, data_domain[0], data_domain[1])
-                        +
-                        self.model.forward_2d(params_v0, data_domain[0], data_domain[1])
-                        * self.model.forward_2d_dy(params_v0, data_domain[0], data_domain[1])
-                    )
-                    - 2 * DT * self.model.forward_2d_dy(params_p0, data_domain[0], data_domain[1])
-                )
-
-                u_star_rhs_test = (
-                    4 * self.model.forward_2d(
-                        params_u1, self.test_domain[:, 0], self.test_domain[:, 1]
-                    )
-                    - self.model.forward_2d(
-                        params_u0, self.test_domain[:, 0], self.test_domain[:, 1]
-                    )
-                    - 4 * DT * (
-                        self.model.forward_2d(
-                            params_u1, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                        * self.model.forward_2d_dx(
-                            params_u1, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                        + self.model.forward_2d(
-                            params_v1, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                        * self.model.forward_2d_dy(
-                            params_u1, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                    )
-                    + 2 * DT * (
-                        self.model.forward_2d(
-                            params_u0, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                        * self.model.forward_2d_dx(
-                            params_u0, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                        + self.model.forward_2d(
-                            params_v0, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                        * self.model.forward_2d_dy(
-                            params_u0, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                    )
-                    - 2 * DT * self.model.forward_2d_dx(
-                        params_p0, self.test_domain[:, 0], self.test_domain[:, 1]
-                    )
-                )
-
-                v_star_rhs_test = (
-                    4 * self.model.forward_2d(
-                        params_v1, self.test_domain[:, 0], self.test_domain[:, 1]
-                    )
-                    - self.model.forward_2d(
-                        params_v0, self.test_domain[:, 0], self.test_domain[:, 1]
-                    )
-                    - 4 * DT * (
-                        self.model.forward_2d(
-                            params_u1, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                        * self.model.forward_2d_dx(
-                            params_v1, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                        + self.model.forward_2d(
-                            params_v1, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                        * self.model.forward_2d_dy(
-                            params_v1, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                    )
-                    + 2 * DT * (
-                        self.model.forward_2d(
-                            params_u0, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                        * self.model.forward_2d_dx(
-                            params_v0, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                        + self.model.forward_2d(
-                            params_v0, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                        * self.model.forward_2d_dy(
-                            params_v0, self.test_domain[:, 0], self.test_domain[:, 1]
-                        )
-                    )
-                    - 2 * DT * self.model.forward_2d_dy(
-                        params_p0, self.test_domain[:, 0], self.test_domain[:, 1]
-                    )
-                )
-
-            u_star_bdy_rhs = vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                data_boundary[0], data_boundary[1], step * DT, "u"
-            )
-            v_star_bdy_rhs = vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                data_boundary[0], data_boundary[1], step * DT, "v"
-            )
-            u_star_bdy_rhs_test = vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                self.test_boundary[:, 0], self.test_boundary[:, 1], step * DT, "u"
-            )
-            v_star_bdy_rhs_test = vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
-                self.test_boundary[:, 0], self.test_boundary[:, 1], step * DT, "v"
-            )
+            # u_star_bdy_rhs = vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
+            #     data_boundary[0], data_boundary[1], step * DT, "u"
+            # )
+            # v_star_bdy_rhs = vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
+            #     data_boundary[0], data_boundary[1], step * DT, "v"
+            # )
+            # u_star_bdy_rhs_test = vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
+            #     self.test_boundary[:, 0], self.test_boundary[:, 1], step * DT, "u"
+            # )
+            # v_star_bdy_rhs_test = vmap(exact_sol, in_dims=(0, 0, None, None), out_dims=0)(
+            #     self.test_boundary[:, 0], self.test_boundary[:, 1], step * DT, "v"
+            # )
 
             # 3d plot
             # fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
@@ -839,7 +485,7 @@ def main():
                 params_u_cpu, test_domain[:, 0], test_domain[:, 1]
             )
             error = torch.abs(
-                exact_sol(test_domain[:, 0], test_domain[:, 1], time, "u") - solution
+                exact_sol(test_domain[:, 0], test_domain[:, 1], time, RE, "u") - solution
             )
             fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
             sca = ax.scatter(test_domain[:, 0], test_domain[:, 1], solution, c=solution)
