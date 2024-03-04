@@ -2,13 +2,14 @@ import torch
 import matplotlib.pyplot as plt
 
 torch.set_default_dtype(torch.float64)
+plt.rcParams.update({"font.size": 12})
 
 
 def exact_solution(x):
-    return torch.sin(2 * torch.pi * x)
+    return torch.sin(3 * torch.pi * x)
 
 def rhs_function(x):
-    return - 4 * torch.pi ** 2 * torch.sin(2 * torch.pi * x)
+    return - 9 * torch.pi ** 2 * torch.sin(3 * torch.pi * x)
 
 
 class Model:
@@ -138,6 +139,7 @@ def test_model(model, weights, biases, points, J_n, Q, u_hat):
     axs[1].scatter(plot_points, error, label="Error", color="green", marker=".")
     axs[0].legend()
     axs[1].legend()
+    plt.suptitle(r"u = sin(3$\pi$x)")
     plt.show()
 
     return exact_values, numerical_values, error
@@ -146,7 +148,7 @@ def test_model(model, weights, biases, points, J_n, Q, u_hat):
 def main():
     J_n = 50  # the number of basis functions per PoU region
     Q = 50  # the number of collocation pointss per PoU region
-    M_p = 4  # the number of PoU regions
+    M_p = 5  # the number of PoU regions
     R_m = 5  # the range of the random weights and biases
 
     # Initialize the weights and biases
