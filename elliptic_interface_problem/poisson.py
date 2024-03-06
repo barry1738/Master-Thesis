@@ -79,31 +79,38 @@ def exact_sol(x):
     return sol.reshape(-1, 1)
 
 
-def rhs(x):
+def rhs(x, y):
     f = (
         -4.0
         * torch.pi**2
-        * torch.sin(2.0 * torch.pi * x[:, 0])
-        * torch.sin(2.0 * torch.pi * x[:, 1])
+        * torch.sin(2.0 * torch.pi * x)
+        * torch.sin(2.0 * torch.pi * y)
     )
     return f.reshape(-1, 1)
 
 
-def forward_dx(model, params, x):
-    output, vjpfunc = vjp(functional_call, model, params, x)
+def forward_dx(model, params, x, y):
+    output, vjpfunc = vjp(lambda primal: functional_call(model, params, (primal, y)), x)
+    return vjpfunc(torch.ones_like(output))[0]
+
+def forward_dy(model, params, x, y):
+    output, vjpfunc = vjp(lambda primal: functional_call(model, params, (x, primal)), y)
+    return vjpfunc(torch.ones_like(output))[0]
+
+def forward_dxx(model, params, x, y):
+    output, vjpfunc = vjp(lambda primal: forward_dx(model, params, primal, y), x)
+    return vjpfunc(torch.ones_like(output))[0]
+
+def forward_dyy(model, params, x, y):
+    output, vjpfunc = vjp(lambda primal: forward_dy(model, params, x, primal), y)
+    return vjpfunc(torch.ones_like(output))[0]
 
 
-def compute_loss_Res(model, func_params, X_inner, Rf_inner):
-    # grad2_f = jacrev(grad(functional_call, argnums=2), argnums=2)(model, func_params, X_inner)
-    # dudX2 = torch.diagonal(grad2_f)
-    # print(f"dudX2 = {dudX2.size()}")
+def compute_loss_Res(model, params, x, y, Rf_inner):
+    laplace = forward_dxx(model, params, x, y) + forward_dyy(model, params, x, y)
+    loss_Res = laplace - Rf_inner
 
-    # laplace = dudX2[0] + dudX2[1]
-
-    # loss_Res = laplace - Rf_inner
-
-    grad = jacrev(functional_call, argnums=2)(model, func_params, X_inner)
-    print(f"grad = {grad.size()}")
+    return loss_Res.flatten()
 
 
 def main():
@@ -128,7 +135,8 @@ def main():
     print(functional_call(model, u_params, (x_input, y_input)).size())
 
     # Loss function
-    # compute_loss_Res(model, u_params, X_inner_torch, rhs(X_inner_torch))
+    loss_Res = compute_loss_Res(model, u_params, x_input, y_input, rhs(x_input, y_input))
+    print(f"loss_Res = {loss_Res.size()}")
 
 
 if __name__ == "__main__":
