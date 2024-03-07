@@ -60,7 +60,7 @@ class Model(nn.Module):
             self.hidden.append(nn.Linear(h_dim[i], h_dim[i + 1]))
 
         # output layer
-        self.ln_out = nn.Linear(h_dim[-1], out_dim)  # bias=True or False?
+        self.ln_out = nn.Linear(h_dim[-1], out_dim, bias=False)  # bias=True or False?
 
         # activation function
         self.act = nn.Sigmoid()
@@ -76,17 +76,17 @@ class Model(nn.Module):
 
 def exact_sol(x, y):
     """Exact solution of the Poisson equation."""
-    sol = torch.sin(1.0 * torch.pi * x) * torch.sin(1.0 * torch.pi * y)
+    sol = torch.sin(2.0 * torch.pi * x) * torch.sin(2.0 * torch.pi * y)
     return sol.reshape(-1, 1)
 
 
 def rhs(x, y):
     """Right-hand side of the Poisson equation."""
     f = (
-        -2.0
+        -2.0 * 2.0**2
         * torch.pi**2
-        * torch.sin(1.0 * torch.pi * x)
-        * torch.sin(1.0 * torch.pi * y)
+        * torch.sin(2.0 * torch.pi * x)
+        * torch.sin(2.0 * torch.pi * y)
     )
     return f.reshape(-1, 1)
 
@@ -135,7 +135,7 @@ def qr_decomposition(J_mat, diff, mu):
 def main():
     mesh = CreateMesh()
     # interior points
-    x_inner = mesh.interior_points(500)
+    x_inner = mesh.interior_points(1000)
     x_inner_vaild = mesh.interior_points(10000)
     # boundary points
     x_bd = mesh.boundary_points(100)
@@ -153,18 +153,23 @@ def main():
     X_inner_vaild, Y_inner_vaild = X_inner_vaild_torch[:, 0].reshape(-1, 1), X_inner_vaild_torch[:, 1].reshape(-1, 1)
     X_bd_vaild, Y_bd_vaild = X_bd_vaild_torch[:, 0].reshape(-1, 1), X_bd_vaild_torch[:, 1].reshape(-1, 1)
 
-    model = Model(2, [20, 20], 1).to(device)  # hidden layers = [...](list)
+    model = Model(2, [100], 1).to(device)  # hidden layers = [...](list)
     print(model)
 
     # get the training parameters and total number of parameters
     u_params = dict(model.named_parameters())
     # for key, value in u_params.items():
     #     print(f"{key} = {value}")
-    # print(f'u_params = {u_params.values()}')
-    u_params_flatten = nn.utils.parameters_to_vector(u_params.values())
+
+    # 10 times the initial parameters
+    u_params_flatten = nn.utils.parameters_to_vector(u_params.values()) * 10.0
+    nn.utils.vector_to_parameters(u_params_flatten, u_params.values())
     print(f"Number of parameters = {u_params_flatten.numel()}")
 
-    print(functional_call(model, u_params, (X_inner, Y_inner)).size())
+    Rf_inner = rhs(X_inner, Y_inner)
+    Rf_bd = exact_sol(X_bd, Y_bd)
+    Rf_inner_vaild = rhs(X_inner_vaild, Y_inner_vaild)
+    Rf_bd_vaild = exact_sol(X_bd_vaild, Y_bd_vaild)
 
     # Start training
     Niter = 1000
@@ -176,34 +181,38 @@ def main():
     for step in range(Niter):
         # Compute Jacobian matrix
         jac_res_dict = vmap(
-            jacrev(compute_loss_Res, argnums=1), in_dims=(None, None, 0, 0, 0), out_dims=0
-        )(model, u_params, X_inner, Y_inner, rhs(X_inner, Y_inner))
+            jacrev(compute_loss_Res, argnums=1),
+            in_dims=(None, None, 0, 0, 0),
+            out_dims=0,
+        )(model, u_params, X_inner, Y_inner, Rf_inner)
 
         jac_b_dict = vmap(
-            jacrev(compute_loss_Bd, argnums=1), in_dims=(None, None, 0, 0, 0), out_dims=0
-        )(model, u_params, X_bd, Y_bd, exact_sol(X_bd, Y_bd))
+            jacrev(compute_loss_Bd, argnums=1),
+            in_dims=(None, None, 0, 0, 0),
+            out_dims=0,
+        )(model, u_params, X_bd, Y_bd, Rf_bd)
 
         # Stack the Jacobian matrices
-        for idx, (val_jac_res, val_jac_b) in enumerate(
-            zip(jac_res_dict.values(), jac_b_dict.values())
-        ):
-            if idx == 0:
-                Jac_res = val_jac_res.view(X_inner.size(0), -1)
-                Jac_b = val_jac_b.view(X_bd.size(0), -1)
-            else:
-                Jac_res = torch.hstack((Jac_res, val_jac_res.view(X_inner.size(0), -1)))
-                Jac_b = torch.hstack((Jac_b, val_jac_b.view(X_bd.size(0), -1)))
+        Jac_res = torch.hstack([v.view(X_inner.size(0), -1) for v in jac_res_dict.values()])
+        Jac_b = torch.hstack([v.view(X_bd.size(0), -1) for v in jac_b_dict.values()])
 
         # print(f"jac_res = {Jac_res.size()}")
         # print(f"jac_b = {Jac_b.size()}")
+        Jac_res = Jac_res / torch.sqrt(torch.tensor(X_inner.size(0)))
+        Jac_b = Jac_b / torch.sqrt(torch.tensor(X_bd.size(0)))
 
         # Put into loss functional to get L_vec
-        L_vec_res = compute_loss_Res(model, u_params, X_inner, Y_inner, rhs(X_inner, Y_inner))
-        L_vec_b = compute_loss_Bd(model, u_params, X_bd, Y_bd, exact_sol(X_bd, Y_bd))
-        L_vec_res_vaild = compute_loss_Res(model, u_params, X_inner_vaild, Y_inner_vaild, rhs(X_inner_vaild, Y_inner_vaild))
-        L_vec_b_vaild = compute_loss_Bd(model, u_params, X_bd_vaild, Y_bd_vaild, exact_sol(X_bd_vaild, Y_bd_vaild))
+        L_vec_res = compute_loss_Res(model, u_params, X_inner, Y_inner, Rf_inner)
+        L_vec_b = compute_loss_Bd(model, u_params, X_bd, Y_bd, Rf_bd)
+        L_vec_res_vaild = compute_loss_Res(model, u_params, X_inner_vaild, Y_inner_vaild, Rf_inner_vaild)
+        L_vec_b_vaild = compute_loss_Bd(model, u_params, X_bd_vaild, Y_bd_vaild, Rf_bd_vaild)
         # print(f"loss_Res = {L_vec_res.size()}")
         # print(f"loss_Bd = {L_vec_b.size()}")
+        L_vec_res = L_vec_res / torch.sqrt(torch.tensor(X_inner.size(0)))
+        L_vec_b = L_vec_b / torch.sqrt(torch.tensor(X_bd.size(0)))
+        L_vec_res_vaild = L_vec_res_vaild / torch.sqrt(torch.tensor(X_inner_vaild.size(0)))
+        L_vec_b_vaild = L_vec_b_vaild / torch.sqrt(torch.tensor(X_bd_vaild.size(0)))
+
 
         # Cat Jac_res and Jac_b into J_mat
         J_mat = torch.vstack((Jac_res, Jac_b))
@@ -213,23 +222,17 @@ def main():
 
         # Solve the linear system
         p = qr_decomposition(J_mat, L_vec, mu)
-        # print(f"p = {p.size()}")
         # Update the parameters
         u_params_vec = nn.utils.parameters_to_vector(u_params.values())
-        # print(f"u_params_vec = {u_params_vec.size()}")
         u_params_vec = u_params_vec + p
-        # print(f"u_params_vec = {u_params_vec}")
         nn.utils.vector_to_parameters(u_params_vec, u_params.values())
-        # print(f"u_params = {u_params.values()}")
 
         # Compute the loss function
         loss = (
-            torch.sum(L_vec_res**2) / X_inner.size(0) +
-            torch.sum(L_vec_b**2) / X_bd.size(0)
+            torch.sum(L_vec_res**2) + torch.sum(L_vec_b**2)
         )
         loss_vaild = (
-            torch.sum(L_vec_res_vaild**2) / X_inner_vaild.size(0) +
-            torch.sum(L_vec_b_vaild**2) / X_bd_vaild.size(0)
+            torch.sum(L_vec_res_vaild**2) + torch.sum(L_vec_b_vaild**2)
         )
         print(f"step = {step}, loss = {loss.item():.2e}, mu = {mu:.1e}")
         savedloss.append(loss.item())
@@ -238,7 +241,7 @@ def main():
         if (step == Niter - 1) or (loss < tol):
             break
         
-        if step % 5 == 0:
+        if step % 3 == 0:
             if savedloss[step] > savedloss[step - 1]:
                 mu = min(2 * mu, 1e8)
             else:
