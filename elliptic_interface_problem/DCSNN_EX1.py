@@ -1,5 +1,6 @@
 import torch
 import scipy
+import time
 import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
@@ -47,7 +48,7 @@ class CreateMesh:
         ))
         return x[:, 0].reshape(-1, 1), x[:, 1].reshape(-1, 1)
     
-    def sign_x(self, x, y):
+    def sign(self, x, y):
         dist = np.sqrt((x / 0.2) ** 2 + (y / 0.5) ** 2)
         z = np.where(dist < 1.0, -1.0, 1.0)
         return z.reshape(-1, 1)
@@ -185,30 +186,48 @@ def qr_decomposition(J_mat, diff, mu):
     return x.flatten()
 
 
+def cholesky(J, diff, mu):
+    """Solve the linear system using Cholesky decomposition"""
+    A = J.t() @ J + mu * torch.eye(J.shape[1], device=device)
+    b = J.t() @ -diff
+    L = torch.linalg.cholesky(A)
+    y = torch.linalg.solve_triangular(L, b, upper=False)
+    x = torch.linalg.solve_triangular(L.t(), y, upper=True)
+    return x.flatten()
+
+
 def main():
+    # Create the training data and validation data
     mesh = CreateMesh()
     # interior points
     x_inner, y_inner = mesh.interior_points(1000)
+    x_inner_valid, y_inner_valid = mesh.interior_points(10000)
     # boundary points
     x_bd, y_bd = mesh.boundary_points(100)
+    x_bd_valid, y_bd_valid = mesh.boundary_points(1000)
     # interface points
-    x_if, y_if = mesh.interface_points(1000)
+    x_if, y_if = mesh.interface_points(500)
+    x_if_valid, y_if_valid = mesh.interface_points(4000)
     print(f"inner_x = {x_inner.shape}")
     print(f"boundary_x = {x_bd.shape}")
     print(f"interface_x = {x_if.shape}")
 
-    z_inner = mesh.sign_x(x_inner, y_inner)
-    z_bd = mesh.sign_x(x_bd, y_bd)
+    z_inner = mesh.sign(x_inner, y_inner)
+    z_bd = mesh.sign(x_bd, y_bd)
+    z_inner_valid = mesh.sign(x_inner_valid, y_inner_valid)
+    z_bd_valid = mesh.sign(x_bd_valid, y_bd_valid)
     print(f"sign_z = {z_inner.shape}")
     normal_x, normal_y = mesh.normal_vector(x_if, y_if)
+    normal_x_valid, normal_y_valid = mesh.normal_vector(x_if_valid, y_if_valid)
     print(f"Normal_vector = {normal_x.shape}")
 
-    # fig, ax = plt.subplots()
-    # ax.scatter(x_inner[:, 0], x_inner[:, 1], c=sign_z, marker='.')
-    # ax.scatter(x_bd[:, 0], x_bd[:, 1], c='r', marker='.')
-    # ax.scatter(x_if[:, 0], x_if[:, 1], c='g', marker='.')
-    # ax.axis('square')
-    # plt.show()
+    # Plot the training data
+    fig, ax = plt.subplots()
+    ax.scatter(x_inner, y_inner, c=z_inner, marker=".")
+    ax.scatter(x_bd, y_bd, c="r", marker=".")
+    ax.scatter(x_if, y_if, c="g", marker=".")
+    ax.axis('square')
+    plt.show()
 
     # Move the data to the device
     X_inner_torch = torch.from_numpy(x_inner).to(device)
@@ -221,6 +240,17 @@ def main():
     Y_if_torch = torch.from_numpy(y_if).to(device)
     Normal_x = torch.from_numpy(normal_x).to(device)
     Normal_y = torch.from_numpy(normal_y).to(device)
+
+    X_inner_valid = torch.from_numpy(x_inner_valid).to(device)
+    Y_inner_valid = torch.from_numpy(y_inner_valid).to(device)
+    Z_inner_valid = torch.from_numpy(z_inner_valid).to(device)
+    X_bd_valid = torch.from_numpy(x_bd_valid).to(device)
+    Y_bd_valid = torch.from_numpy(y_bd_valid).to(device)
+    Z_bd_valid = torch.from_numpy(z_bd_valid).to(device)
+    X_if_valid = torch.from_numpy(x_if_valid).to(device)
+    Y_if_valid = torch.from_numpy(y_if_valid).to(device)
+    Normal_x_valid = torch.from_numpy(normal_x_valid).to(device)
+    Normal_y_valid = torch.from_numpy(normal_y_valid).to(device)
 
     # Define the model
     model = Model(3, [40], 1).to(device)  # hidden layers = [...](list)
@@ -245,15 +275,27 @@ def main():
         normal_u(X_if_torch, Y_if_torch, torch.ones_like(X_if_torch), Normal_x, Normal_y) -
         normal_u(X_if_torch, Y_if_torch, -torch.ones_like(X_if_torch), Normal_x, Normal_y)
     )
+    Rf_inner_valid = rhs_f(X_inner_valid, Y_inner_valid, Z_inner_valid)
+    Rf_bd_valid = exact_sol(X_bd_valid, Y_bd_valid, Z_bd_valid)
+    Rf_if_valid = (
+        exact_sol(X_if_valid, Y_if_valid, torch.ones_like(X_if_valid)) -
+        exact_sol(X_if_valid, Y_if_valid, -torch.ones_like(X_if_valid))
+    )
+    Rf_if_jump_valid = (
+        1.0e-3 *
+        normal_u(X_if_valid, Y_if_valid, torch.ones_like(X_if_valid), Normal_x_valid, Normal_y_valid) -
+        normal_u(X_if_valid, Y_if_valid, -torch.ones_like(X_if_valid), Normal_x_valid, Normal_y_valid)
+    )
 
     # Start training
     Niter = 1000
     tol = 1.0e-10
-    mu = 1.0e5
+    mu = 1.0e3
     savedloss = []
     saveloss_vaild = []
 
-    for step in range(1):
+    time_start = time.time()
+    for step in range(Niter):
         # Compute the Jacobian matrix
         jac_res_dict = vmap(
             jacrev(compute_loss_Res, argnums=1),
@@ -283,10 +325,10 @@ def main():
         jac_bd = torch.hstack([v.view(X_bd_torch.size(0), -1) for v in jac_bd_dict.values()])
         jac_if = torch.hstack([v.view(X_if_torch.size(0), -1) for v in jac_if_dict.values()])
         jac_if_jump = torch.hstack([v.view(X_if_torch.size(0), -1) for v in jac_if_jump_dict.values()])
-        print(f"Jacobian_res = {jac_res.shape}")
-        print(f"Jacobian_bd = {jac_bd.shape}")
-        print(f"Jacobian_if = {jac_if.shape}")
-        print(f"Jacobian_if_jump = {jac_if_jump.shape}\n")
+        # print(f"Jacobian_res = {jac_res.shape}")
+        # print(f"Jacobian_bd = {jac_bd.shape}")
+        # print(f"Jacobian_if = {jac_if.shape}")
+        # print(f"Jacobian_if_jump = {jac_if_jump.shape}\n")
 
         Jac_res = jac_res / torch.sqrt(torch.tensor(jac_res.size(0)))
         Jac_bd = jac_bd / torch.sqrt(torch.tensor(jac_bd.size(0)))
@@ -306,24 +348,41 @@ def main():
         l_vec_if_jump = compute_loss_if_jump(
             model, u_params, X_if_torch, Y_if_torch, Normal_x, Normal_y, Rf_if_jump
         )
-        print(f"Residual_vector = {l_vec_res.shape}")
-        print(f"Boundary_vector = {l_vec_bd.shape}")
-        print(f"Interface_vector = {l_vec_if.shape}")
-        print(f"Interface_jump_vector = {l_vec_if_jump.shape}\n")
+        l_vec_res_valid = compute_loss_Res(
+            model, u_params, X_inner_valid, Y_inner_valid, Z_inner_valid, Rf_inner_valid
+        )
+        l_vec_bd_valid = compute_loss_Bd(
+            model, u_params, X_bd_valid, Y_bd_valid, Z_bd_valid, Rf_bd_valid
+        )
+        l_vec_if_valid = compute_loss_if(
+            model, u_params, X_if_valid, Y_if_valid, Rf_if_valid
+        )
+        l_vec_if_jump_valid = compute_loss_if_jump(
+            model, u_params, X_if_valid, Y_if_valid, Normal_x_valid, Normal_y_valid, Rf_if_jump_valid
+        )
+        # print(f"Residual_vector = {l_vec_res.shape}")
+        # print(f"Boundary_vector = {l_vec_bd.shape}")
+        # print(f"Interface_vector = {l_vec_if.shape}")
+        # print(f"Interface_jump_vector = {l_vec_if_jump.shape}\n")
 
         L_vec_res = l_vec_res / torch.sqrt(torch.tensor(l_vec_res.size(0)))
         L_vec_bd = l_vec_bd / torch.sqrt(torch.tensor(l_vec_bd.size(0)))
         L_vec_if = l_vec_if / torch.sqrt(torch.tensor(l_vec_if.size(0)))
         L_vec_if_jump = l_vec_if_jump / torch.sqrt(torch.tensor(l_vec_if_jump.size(0)))
+        L_vec_res_valid = l_vec_res_valid / torch.sqrt(torch.tensor(l_vec_res_valid.size(0)))
+        L_vec_bd_valid = l_vec_bd_valid / torch.sqrt(torch.tensor(l_vec_bd_valid.size(0)))
+        L_vec_if_valid = l_vec_if_valid / torch.sqrt(torch.tensor(l_vec_if_valid.size(0)))
+        L_vec_if_jump_valid = l_vec_if_jump_valid / torch.sqrt(torch.tensor(l_vec_if_jump_valid.size(0)))
 
         # Cat the Jacobian matrix and residual vector
         J_mat = torch.vstack((Jac_res, Jac_bd, Jac_if, Jac_if_jump))
         L_vec = torch.vstack((L_vec_res, L_vec_bd, L_vec_if, L_vec_if_jump))
-        print(f"Jacobian_matrix = {J_mat.shape}")
-        print(f"Residual_vector = {L_vec.shape}\n")
+        # print(f"Jacobian_matrix = {J_mat.shape}")
+        # print(f"Residual_vector = {L_vec.shape}\n")
 
         # Solve the linear system
-        p = qr_decomposition(J_mat, L_vec, mu)
+        # p = qr_decomposition(J_mat, L_vec, mu)
+        p = cholesky(J_mat, L_vec, mu)
         u_params_flatten = nn.utils.parameters_to_vector(u_params.values())
         u_params_flatten += p
         # Update the model parameters
@@ -331,23 +390,35 @@ def main():
 
         # Compute the loss function
         loss = (
-            torch.sum(l_vec_res**2)
-            + torch.sum(l_vec_bd**2)
-            + torch.sum(l_vec_if**2)
-            + torch.sum(l_vec_if_jump**2)
+            torch.sum(L_vec_res**2)
+            + torch.sum(L_vec_bd**2)
+            + torch.sum(L_vec_if**2)
+            + torch.sum(L_vec_if_jump**2)
+        )
+        loss_valid = (
+            torch.sum(L_vec_res_valid**2)
+            + torch.sum(L_vec_bd_valid**2)
+            + torch.sum(L_vec_if_valid**2)
+            + torch.sum(L_vec_if_jump_valid**2)
         )
         savedloss.append(loss.item())
+        saveloss_vaild.append(loss_valid.item())
+
+        print(f"step = {step}, loss = {loss.item():.2e}, mu = {mu:.1e}")
 
         # Update mu or Stop the iteration
         if loss < tol:
+            # Update the model parameters
+            model.load_state_dict(u_params)
+            print(f"--- {time.time() - time_start:.2f} seconds ---")
             break
         elif step % 5 == 0:
-            if savedloss[-1] > savedloss[-2]:
+            if savedloss[step] > savedloss[step - 1]:
                 mu = min(mu * 2.0, 1.0e8)
             else:
-                mu = max(mu / 3.0, 1.0e-10)
+                mu = max(mu / 3.0, 1.0e-12)
 
-
+    
     # Plot the loss function
     fig, ax = plt.subplots()
     ax.semilogy(savedloss, "k-", label="training loss")
@@ -356,6 +427,32 @@ def main():
     ax.set_ylabel("Loss")
     ax.set_title("Loss function over iterations")
     ax.legend()
+    plt.show()
+
+    # Compute the exact solution
+    x = np.linspace(-1, 1, 100)
+    y = np.linspace(-1, 1, 100)
+    X, Y = np.meshgrid(x, y, indexing="ij")
+    X, Y = X.reshape(-1, 1), Y.reshape(-1, 1)
+    Z = mesh.sign(X, Y)
+    X_torch = torch.from_numpy(X).to(device)
+    Y_torch = torch.from_numpy(Y).to(device)
+    Z_torch = torch.from_numpy(Z).to(device)
+    test_params = dict(model.named_parameters())
+    U_exact = exact_sol(X_torch, Y_torch, Z_torch).cpu().detach().numpy()
+    U_pred = functional_call(model, test_params, (X_torch, Y_torch, Z_torch)).cpu().detach().numpy()
+    Error = np.abs(U_exact - U_pred)
+
+    # Plot the exact solution
+    fig, axs = plt.subplots(1, 2, subplot_kw={"projection": "3d"})
+    sca1 = axs[0].scatter(X, Y, U_pred, c=U_pred, marker="o", cmap="jet")
+    sca2 = axs[1].scatter(X, Y, Error, c=Error, marker="o", cmap="jet")
+    axs[0].set_title("Predicted solution")
+    axs[1].set_title("Error")
+    # axs[0].axis("square")
+    # axs[1].axis("square")
+    plt.colorbar(sca1, shrink=0.7, aspect=15, pad=0.1)
+    plt.colorbar(sca2, shrink=0.7, aspect=15, pad=0.1)
     plt.show()
 
 
