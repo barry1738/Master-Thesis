@@ -128,18 +128,22 @@ class Model:
         A_B_3 = torch.zeros(self.M_p * Q, self.M_p**2 * J_n) # bottom boundary term
         A_B_4 = torch.zeros(self.M_p * Q, self.M_p**2 * J_n) # top boundary term
         A_X_C_0 = torch.zeros((self.M_p - 1) * self.M_p * Q, self.M_p**2 * J_n)  # 0-order smoothness term x direction
-        A_X_C_1 = torch.zeros((self.M_p - 1) * self.M_p * Q, self.M_p**2 * J_n)  # 1-order smoothness term x direction
+        A_X_C_1_dx = torch.zeros((self.M_p - 1) * self.M_p * Q, self.M_p**2 * J_n)  # 1-order smoothness term x direction
+        A_X_C_1_dy = torch.zeros((self.M_p - 1) * self.M_p * Q, self.M_p**2 * J_n)  # 1-order smoothness term x direction
         A_Y_C_0 = torch.zeros((self.M_p - 1) * self.M_p * Q, self.M_p**2 * J_n)  # 0-order smoothness term y direction
-        A_Y_C_1 = torch.zeros((self.M_p - 1) * self.M_p * Q, self.M_p**2 * J_n)  # 1-order smoothness term y direction
+        A_Y_C_1_dx = torch.zeros((self.M_p - 1) * self.M_p * Q, self.M_p**2 * J_n)  # 1-order smoothness term y direction
+        A_Y_C_1_dy = torch.zeros((self.M_p - 1) * self.M_p * Q, self.M_p**2 * J_n)  # 1-order smoothness term y direction
         f_I = torch.zeros(self.M_p**2 * Q**2, 1)  # PDE right-hand side
         f_1 = torch.zeros(self.M_p * Q, 1)  # left boundary right-hand side
         f_2 = torch.zeros(self.M_p * Q, 1)  # right boundary right-hand side
         f_3 = torch.zeros(self.M_p * Q, 1)  # bottom boundary right-hand side
         f_4 = torch.zeros(self.M_p * Q, 1)  # top boundary right-hand side
         f_x_c_0 = torch.zeros((self.M_p - 1) * self.M_p * Q, 1)  # 0-order smoothness x right-hand side
-        f_x_c_1 = torch.zeros((self.M_p - 1) * self.M_p * Q, 1)  # 1-order smoothness x right-hand side
+        f_x_c_1_dx = torch.zeros((self.M_p - 1) * self.M_p * Q, 1)  # 1-order smoothness x right-hand side
+        f_x_c_1_dy = torch.zeros((self.M_p - 1) * self.M_p * Q, 1)  # 1-order smoothness x right-hand side
         f_y_c_0 = torch.zeros((self.M_p - 1) * self.M_p * Q, 1)  # 0-order smoothness y right-hand side
-        f_y_c_1 = torch.zeros((self.M_p - 1) * self.M_p * Q, 1)  # 1-order smoothness y right-hand side
+        f_y_c_1_dx = torch.zeros((self.M_p - 1) * self.M_p * Q, 1)  # 1-order smoothness y right-hand side
+        f_y_c_1_dy = torch.zeros((self.M_p - 1) * self.M_p * Q, 1)  # 1-order smoothness y right-hand side
 
         # print(f'A_I: {A_I.shape}')
         # print(f'A_B: {A_B.shape}')
@@ -208,15 +212,21 @@ class Model:
                         A_X_C_0[x_idx_begin : x_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
                             self.predict_func(weights, biases, boundary_points_right, i, j)
                         )
-                        A_X_C_1[x_idx_begin : x_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
+                        A_X_C_1_dx[x_idx_begin : x_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
                             self.predict_dx_func(weights, biases, boundary_points_right, i, j)
+                        )
+                        A_X_C_1_dy[x_idx_begin : x_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
+                            self.predict_dy_func(weights, biases, boundary_points_right, i, j)
                         )
                     elif i == self.M_p - 1:
                         A_X_C_0[x_idx_begin - Q : x_idx_begin, J_n_begin : J_n_begin + J_n] = (
                             - self.predict_func(weights, biases, boundary_points_left, i, j)
                         )
-                        A_X_C_1[x_idx_begin - Q : x_idx_begin, J_n_begin : J_n_begin + J_n] = (
+                        A_X_C_1_dx[x_idx_begin - Q : x_idx_begin, J_n_begin : J_n_begin + J_n] = (
                             - self.predict_dx_func(weights, biases, boundary_points_left, i, j)
+                        )
+                        A_X_C_1_dy[x_idx_begin - Q : x_idx_begin, J_n_begin : J_n_begin + J_n] = (
+                            - self.predict_dy_func(weights, biases, boundary_points_left, i, j)
                         )
                     else:
                         A_X_C_0[x_idx_begin : x_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
@@ -225,11 +235,17 @@ class Model:
                         A_X_C_0[x_idx_begin - Q : x_idx_begin, J_n_begin : J_n_begin + J_n] = (
                             - self.predict_func(weights, biases, boundary_points_left, i, j)
                         )
-                        A_X_C_1[x_idx_begin : x_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
+                        A_X_C_1_dx[x_idx_begin : x_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
                             self.predict_dx_func(weights, biases, boundary_points_right, i, j)
                         )
-                        A_X_C_1[x_idx_begin - Q : x_idx_begin, J_n_begin : J_n_begin + J_n] = (
+                        A_X_C_1_dx[x_idx_begin - Q : x_idx_begin, J_n_begin : J_n_begin + J_n] = (
                             - self.predict_dx_func(weights, biases, boundary_points_left, i, j)
+                        )
+                        A_X_C_1_dy[x_idx_begin : x_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
+                            self.predict_dy_func(weights, biases, boundary_points_right, i, j)
+                        )
+                        A_X_C_1_dy[x_idx_begin - Q : x_idx_begin, J_n_begin : J_n_begin + J_n] = (
+                            - self.predict_dy_func(weights, biases, boundary_points_left, i, j)
                         )
 
                 # y-axis smoothness term
@@ -239,14 +255,20 @@ class Model:
                         A_Y_C_0[y_idx_begin : y_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
                             self.predict_func(weights, biases, boundary_points_top, i, j)
                         )
-                        A_Y_C_1[y_idx_begin : y_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
+                        A_Y_C_1_dx[y_idx_begin : y_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
+                            self.predict_dx_func(weights, biases, boundary_points_top, i, j)
+                        )
+                        A_Y_C_1_dy[y_idx_begin : y_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
                             self.predict_dy_func(weights, biases, boundary_points_top, i, j)
                         )
                     elif j == self.M_p - 1:
                         A_Y_C_0[y_idx_begin - Q : y_idx_begin, J_n_begin : J_n_begin + J_n] = (
                             - self.predict_func(weights, biases, boundary_points_bottom, i, j)
                         )
-                        A_Y_C_1[y_idx_begin - Q : y_idx_begin, J_n_begin : J_n_begin + J_n] = (
+                        A_Y_C_1_dx[y_idx_begin - Q : y_idx_begin, J_n_begin : J_n_begin + J_n] = (
+                            - self.predict_dx_func(weights, biases, boundary_points_bottom, i, j)
+                        )
+                        A_Y_C_1_dy[y_idx_begin - Q : y_idx_begin, J_n_begin : J_n_begin + J_n] = (
                             - self.predict_dy_func(weights, biases, boundary_points_bottom, i, j)
                         )
                     else:
@@ -256,16 +278,22 @@ class Model:
                         A_Y_C_0[y_idx_begin - Q : y_idx_begin, J_n_begin : J_n_begin + J_n] = (
                             - self.predict_func(weights, biases, boundary_points_bottom, i, j)
                         )
-                        A_Y_C_1[y_idx_begin : y_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
+                        A_Y_C_1_dx[y_idx_begin : y_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
+                            self.predict_dx_func(weights, biases, boundary_points_top, i, j)
+                        )
+                        A_Y_C_1_dx[y_idx_begin - Q : y_idx_begin, J_n_begin : J_n_begin + J_n] = (
+                            - self.predict_dx_func(weights, biases, boundary_points_bottom, i, j)
+                        )
+                        A_Y_C_1_dy[y_idx_begin : y_idx_begin + Q, J_n_begin : J_n_begin + J_n] = (
                             self.predict_dy_func(weights, biases, boundary_points_top, i, j)
                         )
-                        A_Y_C_1[y_idx_begin - Q : y_idx_begin, J_n_begin : J_n_begin + J_n] = (
+                        A_Y_C_1_dy[y_idx_begin - Q : y_idx_begin, J_n_begin : J_n_begin + J_n] = (
                             - self.predict_dy_func(weights, biases, boundary_points_bottom, i, j)
                         )
 
         if self.M_p > 1:
-            A = torch.vstack((A_I, A_B_1, A_B_2, A_B_3, A_B_4, A_X_C_0, A_X_C_1, A_Y_C_0, A_Y_C_1))
-            f = torch.vstack((f_I, f_1, f_2, f_3, f_4, f_x_c_0, f_x_c_1, f_y_c_0, f_y_c_1))
+            A = torch.vstack((A_I, A_B_1, A_B_2, A_B_3, A_B_4, A_X_C_0, A_Y_C_0, A_X_C_1_dx, A_Y_C_1_dx, A_X_C_1_dy, A_Y_C_1_dy))
+            f = torch.vstack((f_I, f_1, f_2, f_3, f_4, f_x_c_0, f_y_c_0, f_x_c_1_dx, f_y_c_1_dx, f_x_c_1_dy, f_y_c_1_dy))
         else:
             A = torch.vstack((A_I, A_B_1, A_B_2, A_B_3, A_B_4))
             f = torch.vstack((f_I, f_1, f_2, f_3, f_4))
@@ -351,10 +379,10 @@ def test_model(model, weights, biases, J_n, Q, u_hat):
 
 
 def main():
-    J_n = 400  # the number of basis functions per PoU region
-    Q = 20  # the number of collocation points per axis of PoU region
+    J_n = 200  # the number of basis functions per PoU region
+    Q = 10  # the number of collocation points per axis of PoU region
     M_p = 3  # the number of PoU regions per axis
-    R_m = 5  # the range of the random weights and biases
+    R_m = 1  # the range of the random weights and biases
 
     # Initialize the weights and biases
     weights = torch.randn(1, 2, J_n, M_p**2).uniform_(-R_m, R_m)
@@ -383,22 +411,30 @@ def main():
             y_min = Y_min + (Y_max - Y_min) * j / M_p
             y_max = Y_min + (Y_max - Y_min) * (j + 1) / M_p
 
-            internal_x = torch.Tensor(Q * Q, 1).uniform_(x_min, x_max)
-            internal_y = torch.Tensor(Q * Q, 1).uniform_(y_min, y_max)
+            internal_x = torch.Tensor(Q**2, 1).uniform_(x_min, x_max)
+            internal_y = torch.Tensor(Q**2, 1).uniform_(y_min, y_max)
 
             boundary_x_left = x_min * torch.ones(Q, 1)
-            # boundary_y_left = torch.Tensor(Q, 1).uniform_(y_min, y_max)
+            # boundary_y_left = torch.vstack(
+            #     (y_min, (torch.Tensor(Q - 2, 1).uniform_(y_min, y_max)), y_max)
+            # )
             boundary_y_left = torch.torch.linspace(y_min, y_max, Q).reshape(-1, 1)
 
             boundary_x_right = x_max * torch.ones(Q, 1)
-            # boundary_y_right = torch.Tensor(Q, 1).uniform_(y_min, y_max)
+            # boundary_y_right = torch.vstack(
+            #     (y_min, (torch.Tensor(Q - 2, 1).uniform_(y_min, y_max)), y_max)
+            # )
             boundary_y_right = torch.torch.linspace(y_min, y_max, Q).reshape(-1, 1)
 
-            # boundary_x_top = torch.Tensor(Q, 1).uniform_(x_min, x_max)
+            # boundary_x_top = torch.vstack(
+            #     (x_min, (torch.Tensor(Q - 2, 1).uniform_(x_min, x_max)), x_max)
+            # )
             boundary_x_top = torch.torch.linspace(x_min, x_max, Q).reshape(-1, 1)
             boundary_y_top = y_max * torch.ones(Q, 1)
 
-            # boundary_x_bottom = torch.Tensor(Q, 1).uniform_(x_min, x_max)
+            # boundary_x_bottom = torch.vstack(
+            #     (x_min, (torch.Tensor(Q - 2, 1).uniform_(x_min, x_max)), x_max)
+            # )
             boundary_x_bottom = torch.torch.linspace(x_min, x_max, Q).reshape(-1, 1)
             boundary_y_bottom = y_min * torch.ones(Q, 1)
 
