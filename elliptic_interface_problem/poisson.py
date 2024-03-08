@@ -213,7 +213,6 @@ def main():
         L_vec_res_vaild = L_vec_res_vaild / torch.sqrt(torch.tensor(X_inner_vaild.size(0)))
         L_vec_b_vaild = L_vec_b_vaild / torch.sqrt(torch.tensor(X_bd_vaild.size(0)))
 
-
         # Cat Jac_res and Jac_b into J_mat
         J_mat = torch.vstack((Jac_res, Jac_b))
         L_vec = torch.vstack((L_vec_res, L_vec_b))
