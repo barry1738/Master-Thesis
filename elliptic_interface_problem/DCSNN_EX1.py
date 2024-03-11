@@ -453,6 +453,7 @@ def main():
     # axs[1].axis("square")
     plt.colorbar(sca1, shrink=0.7, aspect=15, pad=0.1)
     plt.colorbar(sca2, shrink=0.7, aspect=15, pad=0.1)
+    plt.suptitle('DCSNN Example 1')
     plt.show()
 
 
