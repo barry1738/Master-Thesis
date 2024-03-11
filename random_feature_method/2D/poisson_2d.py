@@ -2,6 +2,8 @@ import torch
 import matplotlib.pyplot as plt
 # import matplotlib.ticker as mtick
 
+# TODO: interface點一致或不一致會不會引響結果的誤差
+
 torch.set_default_dtype(torch.float64)
 plt.rcParams.update({"font.size": 12})
 
