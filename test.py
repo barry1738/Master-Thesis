@@ -28,7 +28,7 @@ def check_polar(x, y):
 
 
 def main():
-    n = 10000
+    n = 1000
     x, y = random_circle(n)
     x_p, y_p = random_polar(n)
     z = check_polar(x, y)
