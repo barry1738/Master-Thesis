@@ -4,7 +4,7 @@ import numpy as np
 import torch.nn as nn
 import scipy.stats.qmc as qmc
 import matplotlib.pyplot as plt
-from torch.func import functional_call, vmap, vjp, jacrev
+from torch.func import functional_call, vmap, vjp, jacrev, grad
 
 
 torch.cuda.empty_cache()
@@ -14,37 +14,35 @@ print("device = ", device)
 
 
 class CreateMesh:
-    def __init__(self) -> None:
-        pass
+    def __init__(self, interface_func):
+        self.func = interface_func
 
     def domain_points(self, n, *, xc=0, yc=0, r=1):
         """Uniform random distribution within a circle"""
-        radius = r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n))
-        theta = 2 * np.pi * qmc.LatinHypercube(d=1).random(n=n)
-        x = xc + radius * np.cos(theta)
-        y = yc + radius * np.sin(theta)
-        return torch.tensor(x), torch.tensor(y)
+        radius = torch.tensor(r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
+        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
+        x = xc + radius * torch.cos(theta)
+        y = yc + radius * torch.sin(theta)
+        return x, y
     
     def boundary_points(self, n, *, xc=0, yc=0, r=1):
         """Uniform random distribution on a circle"""
-        theta = 2 * np.pi * qmc.LatinHypercube(d=1).random(n=n)
-        x = xc + r * np.cos(theta)
-        y = yc + r * np.sin(theta)
-        return torch.tensor(x), torch.tensor(y)
+        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
+        x = xc + r * torch.cos(theta)
+        y = yc + r * torch.sin(theta)
+        return x, y
 
     def interface_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution on a polar curve"""
-        theta = 2 * np.pi * qmc.LatinHypercube(d=1).random(n=n)
-        radius = 1 / 2 + np.cos(3 * theta) / 10
-        # radius = 0.5
-        x = xc + radius * np.cos(theta)
-        y = yc + radius * np.sin(theta)
-        return torch.tensor(x), torch.tensor(y)
+        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
+        radius = self.func(theta)
+        x = xc + radius * torch.cos(theta)
+        y = yc + radius * torch.sin(theta)
+        return x, y
 
     def sign(self, x, y):
         """Check the points inside the polar curve, return z = -1 if inside, z = 1 if outside"""
-        dist = torch.sqrt(x ** 2 + y ** 2) - (1 / 2 + torch.cos(3 * torch.atan2(y, x)) / 10)
-        # dist = torch.sqrt(x ** 2 + y ** 2) - 0.5
+        dist = torch.sqrt(x ** 2 + y ** 2) - self.func(torch.atan2(y, x))
         z = torch.where(dist > 0, 1, -1)
         return z
     
@@ -60,12 +58,10 @@ class CreateMesh:
     def compute_interface_normal_vec(self, x, y):
         """Compute the interface normal vector"""
         theta = torch.atan2(y, x)
-        ri = 1 / 2 + torch.cos(3 * theta) / 10
-        dri = -3 * torch.sin(3 * theta) / 10
-        # ri = 0.5
-        # dri = 0
-        nx = dri * torch.sin(theta) + ri * torch.cos(theta)
-        ny = -dri * torch.cos(theta) + ri * torch.sin(theta)
+        r = self.func(theta)
+        drdt = vmap(grad(self.func))(theta.reshape(-1)).view(-1, 1)
+        nx = drdt * torch.sin(theta) + r * torch.cos(theta)
+        ny = -drdt * torch.cos(theta) + r * torch.sin(theta)
         dist = torch.sqrt(nx ** 2 + ny ** 2)
         nx = nx / dist
         ny = ny / dist
@@ -74,12 +70,9 @@ class CreateMesh:
     def compute_interface_curvature(self, x, y):
         """Compute the interface curvature"""
         theta = torch.atan2(y, x)
-        r = 1 / 2 + torch.cos(3 * theta) / 10
-        drdt = -3 * torch.sin(3 * theta) / 10
-        d2rdt2 = -9 * torch.cos(3 * theta) / 10
-        # r = 0.5
-        # drdt = 0
-        # d2rdt2 = 0
+        r = self.func(theta)
+        drdt = vmap(grad(self.func))(theta.reshape(-1)).view(-1, 1)
+        d2rdt2 = vmap(grad(grad(self.func)))(theta.reshape(-1)).view(-1, 1)
         dxdt = drdt * torch.cos(theta) - r * torch.sin(theta)
         dydt = drdt * torch.sin(theta) + r * torch.cos(theta)
         d2xdt2 = d2rdt2 * torch.cos(theta) - 2 * drdt * torch.sin(theta) - r * torch.cos(theta)
@@ -104,6 +97,7 @@ class Model(nn.Module):
 
         # activation function
         self.act = nn.Sigmoid()
+        # self.act = nn.SiLU()
 
     def forward(self, x, y, z):
         input = torch.hstack((x, y, z))
@@ -203,16 +197,16 @@ def cholesky(J, diff, mu):
 
 def main():
     # Create the training data
-    mesh = CreateMesh()
-    x_inner, y_inner = mesh.domain_points(1000)
-    x_bd, y_bd = mesh.boundary_points(200)
-    x_if, y_if = mesh.interface_points(1000)
+    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(2 * t))
+    x_inner, y_inner = mesh.domain_points(1000, r=3)
+    x_bd, y_bd = mesh.boundary_points(200, r=3)
+    x_if, y_if = mesh.interface_points(400)
     z_inner = mesh.sign(x_inner, y_inner)
     z_bd = torch.ones_like(x_bd)
 
     # Create the validation data
-    x_inner_v, y_inner_v = mesh.domain_points(10000)
-    x_bd_v, y_bd_v = mesh.boundary_points(1000)
+    x_inner_v, y_inner_v = mesh.domain_points(10000, r=3)
+    x_bd_v, y_bd_v = mesh.boundary_points(2000, r=3)
     x_if_v, y_if_v = mesh.interface_points(2000)
     z_inner_v = mesh.sign(x_inner_v, y_inner_v)
     z_bd_v = torch.ones_like(x_bd_v)
@@ -233,6 +227,11 @@ def main():
     # Compute the length of the interface points from the origin
     r_if = torch.sqrt(x_if ** 2 + y_if ** 2)
     r_if_v = torch.sqrt(x_if_v ** 2 + y_if_v ** 2)
+
+    theta = torch.arctan2(y_if, x_if)
+    fig, ax = plt.subplots()
+    ax.scatter(theta, k_if)
+    plt.show()
 
     # Plot the training data
     fig, ax = plt.subplots()
@@ -263,28 +262,28 @@ def main():
     r_if_v = r_if_v.to(device)
 
     # Define the model
-    model = Model(3, [50, 50], 1).to(device)
+    model = Model(3, [20, 20], 1).to(device)
     # print(model)
 
     # get the training parameters and total number of parameters
     u_params = dict(model.named_parameters())
     # 10 times the initial parameters
-    u_params_flatten = nn.utils.parameters_to_vector(u_params.values()) * 10.0
+    u_params_flatten = nn.utils.parameters_to_vector(u_params.values()) * 5.0
     nn.utils.vector_to_parameters(u_params_flatten, u_params.values())
     print(f"Number of parameters = {u_params_flatten.numel()}")
 
     # Define the right-hand side vector
     Ca = torch.tensor(100)
-    beta = torch.tensor(100)
+    beta = torch.tensor(10)
     Rf_inner = torch.zeros_like(x_inner)
     Rf_bd = torch.zeros_like(x_bd)
-    Rf_if_1 = k_if / Ca - (1 - 1 / beta) * torch.log(r_if) / (2 * torch.pi)
+    Rf_if_1 = k_if / Ca + (1 - 1 / beta) * torch.log(r_if) / (2 * torch.pi)
     # Rf_if_1 = k_if / Ca
     Rf_if_2 = torch.zeros_like(x_if)
 
     Rf_inner_v = torch.zeros_like(x_inner_v)
     Rf_bd_v = torch.zeros_like(x_bd_v)
-    Rf_if_1_v = k_if_v / Ca - (1 - 1 / beta) * torch.log(r_if_v) / (2 * torch.pi)
+    Rf_if_1_v = k_if_v / Ca + (1 - 1 / beta) * torch.log(r_if_v) / (2 * torch.pi)
     # Rf_if_1_v = k_if_v / Ca
     Rf_if_2_v = torch.zeros_like(x_if_v)
 
@@ -368,8 +367,8 @@ def main():
         # print(f"L_vec.shape = {L_vec.shape}")
 
         # Solve the linear system
-        p = qr_decomposition(Jac, L_vec, mu)
-        # p = cholesky(Jac, L_vec, mu)
+        # p = qr_decomposition(Jac, L_vec, mu)
+        p = cholesky(Jac, L_vec, mu)
         u_params_flatten = nn.utils.parameters_to_vector(u_params.values())
         u_params_flatten += p
 
@@ -404,11 +403,11 @@ def main():
             if savedloss[step] > savedloss[step - 1]:
                 mu = min(mu * 2.0, 1.0e8)
             else:
-                mu = max(mu / 3, 1.0e-10)
+                mu = max(mu / 3.0, 1.0e-10)
 
 
     # Save the Model
-    torch.save(model.state_dict(), "model.pt")
+    torch.save(model, "model6.pt")
 
     # Plot the loss function
     fig, ax = plt.subplots()
@@ -421,8 +420,8 @@ def main():
     plt.show()
 
     # Plot the training results
-    plot_x, plot_y = mesh.domain_points(50000)
-    plot_x_bd, plot_y_bd = mesh.boundary_points(2000)
+    plot_x, plot_y = mesh.domain_points(50000, r=3)
+    plot_x_bd, plot_y_bd = mesh.boundary_points(2000, r=3)
     plot_z = mesh.sign(plot_x, plot_y)
     plot_z_bd = torch.ones_like(plot_x_bd)
     plot_x = torch.vstack((plot_x, plot_x_bd)).to(device)
@@ -430,10 +429,30 @@ def main():
     plot_z = torch.vstack((plot_z, plot_z_bd)).to(device)
     result = functional_call(model, u_params, (plot_x, plot_y, plot_z)).cpu().detach().numpy()
 
-    fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-    ax.scatter(plot_x.to('cpu'), plot_y.to('cpu'), result, c=result, s=1)
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
+    plot_x_if, plot_y_if = mesh.interface_points(1000)
+    plot_z_if = torch.ones_like(plot_x_if)
+    plot_theta = torch.atan2(plot_y_if, plot_x_if)
+    plot_theta = torch.where(plot_theta<0, 2*torch.pi+plot_theta, plot_theta)
+    plot_nx, plot_ny = mesh.compute_interface_normal_vec(plot_x_if, plot_y_if)
+    plot_x_if = plot_x_if.to(device)
+    plot_y_if = plot_y_if.to(device)
+    plot_z_if = plot_z_if.to(device)
+    plot_nx = plot_nx.to(device)
+    plot_ny = plot_ny.to(device)
+    pred_normal = (
+        forward_dx(model, u_params, plot_x_if, plot_y_if, plot_z_if) * plot_nx +
+        forward_dy(model, u_params, plot_x_if, plot_y_if, plot_z_if) * plot_ny
+    ).cpu().detach().numpy()
+    
+    fig = plt.figure()
+    ax1 = fig.add_subplot(1, 2, 1, projection="3d")
+    ax2 = fig.add_subplot(1, 2, 2)
+    sca = ax1.scatter(plot_x.cpu(), plot_y.cpu(), result, c=result, s=1)
+    ax2.scatter(plot_theta, pred_normal, s=1)
+    ax1.set_xlabel("X")
+    ax1.set_ylabel("Y")
+    ax1.axes.zaxis.set_ticklabels([])
+    plt.colorbar(sca, shrink=0.5, aspect=7, pad=0.02)
     plt.show()
 
 

@@ -39,7 +39,7 @@ class CreateMesh:
     def __init__(self) -> None:
         pass
 
-    def domain_points(self, n, *, xc=0, yc=0, r=1):
+    def domain_points(self, n, *, xc=0, yc=0, r=2):
         """Uniform random distribution within a circle"""
         radius = r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n))
         theta = 2 * np.pi * qmc.LatinHypercube(d=1).random(n=n)
@@ -47,7 +47,7 @@ class CreateMesh:
         y = yc + radius * np.sin(theta)
         return torch.tensor(x), torch.tensor(y)
 
-    def boundary_points(self, n, *, xc=0, yc=0, r=1):
+    def boundary_points(self, n, *, xc=0, yc=0, r=2):
         """Uniform random distribution on a circle"""
         theta = 2 * np.pi * qmc.LatinHypercube(d=1).random(n=n)
         x = xc + r * np.cos(theta)
@@ -57,16 +57,16 @@ class CreateMesh:
     def interface_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution on a polar curve"""
         theta = 2 * np.pi * qmc.LatinHypercube(d=1).random(n=n)
-        radius = 1 / 2 + np.cos(3 * theta) / 10
-        # radius = 0.5
+        # radius = 1 + np.cos(2 * theta) / 10
+        radius = 1
         x = xc + radius * np.cos(theta)
         y = yc + radius * np.sin(theta)
         return torch.tensor(x), torch.tensor(y)
 
     def sign(self, x, y):
         """Check the points inside the polar curve, return z = -1 if inside, z = 1 if outside"""
-        dist = torch.sqrt(x**2 + y**2) - (1 / 2 + torch.cos(3 * torch.atan2(y, x)) / 10)
-        # dist = torch.sqrt(x ** 2 + y ** 2) - 0.5
+        # dist = torch.sqrt(x**2 + y**2) - (1 + torch.cos(2 * torch.atan2(y, x)) / 10)
+        dist = torch.sqrt(x ** 2 + y ** 2) - 1
         z = torch.where(dist > 0, 1, -1)
         return z
 
@@ -82,10 +82,10 @@ class CreateMesh:
     def compute_interface_normal_vec(self, x, y):
         """Compute the interface normal vector"""
         theta = torch.atan2(y, x)
-        ri = 1 / 2 + torch.cos(3 * theta) / 10
-        dri = -3 * torch.sin(3 * theta) / 10
-        # ri = 0.5
-        # dri = 0
+        # ri = 1 + torch.cos(2 * theta) / 10
+        # dri = -2 * torch.sin(2 * theta) / 10
+        ri = 1
+        dri = 0
         nx = dri * torch.sin(theta) + ri * torch.cos(theta)
         ny = -dri * torch.cos(theta) + ri * torch.sin(theta)
         dist = torch.sqrt(nx**2 + ny**2)
@@ -96,12 +96,12 @@ class CreateMesh:
     def compute_interface_curvature(self, x, y):
         """Compute the interface curvature"""
         theta = torch.atan2(y, x)
-        r = 1 / 2 + torch.cos(3 * theta) / 10
-        drdt = -3 * torch.sin(3 * theta) / 10
-        d2rdt2 = -9 * torch.cos(3 * theta) / 10
-        # r = 0.5
-        # drdt = 0
-        # d2rdt2 = 0
+        # r = 1 + torch.cos(2 * theta) / 10
+        # drdt = -2 * torch.sin(2 * theta) / 10
+        # d2rdt2 = -4 * torch.cos(2 * theta) / 10
+        r = 1
+        drdt = 0
+        d2rdt2 = 0
         dxdt = drdt * torch.cos(theta) - r * torch.sin(theta)
         dydt = drdt * torch.sin(theta) + r * torch.cos(theta)
         d2xdt2 = (
@@ -147,28 +147,21 @@ def forward_dyy(model, params, x, y, z):
 
 
 # Load the model
-model = Model(3, [20], 1)
-model = torch.load('model.pt', map_location=torch.device('cpu'))
+model = Model(3, [50, 50], 1)
+# model = torch.load('model6.pt', map_location=torch.device('cpu'))
+model.load_state_dict(torch.load("model6.pt"))
 model.eval()
 print(model)
 
 params = dict(model.named_parameters())
 
 
-mesh = CreateMesh()
 
 # Create the mesh
+mesh = CreateMesh()
 plot_x, plot_y = mesh.domain_points(50000)
 plot_z = mesh.sign(plot_x, plot_y)
 result = functional_call(model, params, (plot_x, plot_y, plot_z)).detach().numpy()
-
-# Plot the results
-fig, ax = plt.subplots(subplot_kw={'projection': '3d'})
-sc = ax.scatter(plot_x, plot_y, result, c=result, cmap="coolwarm", s=1)
-# ax.set_aspect('equal')
-plt.colorbar(sc)
-plt.show()
-
 
 # Plot the resutls on the interface
 theta = np.linspace(0, 2 * np.pi, 1000).reshape(-1, 1)
@@ -177,18 +170,21 @@ if_x = torch.tensor(r * np.cos(theta))
 if_y = torch.tensor(r * np.sin(theta))
 nx, ny = mesh.compute_interface_normal_vec(if_x, if_y)
 
-z_inner = -1.0 * torch.ones_like(if_x)
 z_outer = 1.0 * torch.ones_like(if_x)
 dfdx_outer = forward_dx(model, params, if_x, if_y, z_outer)
 dfdy_outer = forward_dy(model, params, if_x, if_y, z_outer)
-dfdx_inner = forward_dx(model, params, if_x, if_y, z_inner)
-dfdy_inner = forward_dy(model, params, if_x, if_y, z_inner)
-pred_outer = nx * dfdx_outer + ny * dfdy_outer
-pred_inner = nx * dfdx_inner + ny * dfdy_inner
-pred = pred_outer - 100 * pred_inner
+pred = nx * dfdx_outer + ny * dfdy_outer
 
-fig, ax = plt.subplots()
-ax.plot(theta, pred.detach().numpy(), label="Predicted")
-ax.axis("equal")
+
+# Plot the results
+fig = plt.figure()
+ax1 = fig.add_subplot(1, 2, 1, projection="3d")
+sc = ax1.scatter(plot_x, plot_y, result, c=result, cmap="coolwarm", s=1)
+ax1.axes.zaxis.set_ticklabels([])
+fig.colorbar(sc, shrink=0.5, aspect=7, pad=0.02)
+# plt.show()
+
+ax2 = fig.add_subplot(1, 2, 2)
+sc2 = ax2.plot(theta, pred.detach().numpy())
+# ax2.axis("equal")
 plt.show()
-
