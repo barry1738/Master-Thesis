@@ -456,6 +456,32 @@ def main():
     plt.suptitle('DCSNN Example 1')
     plt.show()
 
+    # Plot the normal vector on interface
+    plot_x_if, plot_y_if = mesh.interface_points(1000)
+    plot_theta = np.arctan2(plot_y_if, plot_x_if)
+    plot_z_if = np.ones_like(plot_x_if)
+    plot_nx, plot_ny = mesh.normal_vector(plot_x_if, plot_y_if)
+    plot_x_if = torch.from_numpy(plot_x_if).to(device)
+    plot_y_if = torch.from_numpy(plot_y_if).to(device)
+    plot_z_if = torch.from_numpy(plot_z_if).to(device)
+    plot_nx = torch.from_numpy(plot_nx).to(device)
+    plot_ny = torch.from_numpy(plot_ny).to(device)
+    pred_normal = (
+        forward_dx(model, u_params, plot_x_if, plot_y_if, plot_z_if) * plot_nx
+        +
+        forward_dy(model, u_params, plot_x_if, plot_y_if, plot_z_if) * plot_ny
+    ).cpu().detach().numpy()
+    exact_normal = (
+        torch.cos(plot_x_if) * torch.sin(plot_y_if) * plot_nx
+        +
+        torch.sin(plot_x_if) * torch.cos(plot_y_if) * plot_ny
+    ).cpu().detach().numpy()
+
+    fig, ax = plt.subplots()
+    ax.scatter(plot_theta, pred_normal, c='r', s=5)
+    ax.scatter(plot_theta, exact_normal, c='k', s=1)
+    plt.show()
+
 
 if __name__ == "__main__":
     main()
