@@ -14,22 +14,23 @@ print("device = ", device)
 
 
 class CreateMesh:
-    def __init__(self, interface_func):
+    def __init__(self, interface_func, *, radius=1):
         self.func = interface_func
+        self.r = radius
 
-    def domain_points(self, n, *, xc=0, yc=0, r=1):
+    def domain_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution within a circle"""
-        radius = torch.tensor(r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
+        radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
         theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
         x = xc + radius * torch.cos(theta)
         y = yc + radius * torch.sin(theta)
         return x, y
     
-    def boundary_points(self, n, *, xc=0, yc=0, r=1):
+    def boundary_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution on a circle"""
         theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
-        x = xc + r * torch.cos(theta)
-        y = yc + r * torch.sin(theta)
+        x = xc + self.r * torch.cos(theta)
+        y = yc + self.r * torch.sin(theta)
         return x, y
 
     def interface_points(self, n, *, xc=0, yc=0):
@@ -201,16 +202,16 @@ def main():
     # print(model)
 
     # Create the training data
-    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(2 * t))
-    x_inner, y_inner = mesh.domain_points(2000, r=2)
-    x_bd, y_bd = mesh.boundary_points(200, r=2)
+    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(2 * t), radius=2)
+    x_inner, y_inner = mesh.domain_points(2000)
+    x_bd, y_bd = mesh.boundary_points(200)
     x_if, y_if = mesh.interface_points(200)
     z_inner = mesh.sign(x_inner, y_inner)
     z_bd = torch.ones_like(x_bd)
 
     # Create the validation data
-    x_inner_v, y_inner_v = mesh.domain_points(5000, r=2)
-    x_bd_v, y_bd_v = mesh.boundary_points(1000, r=2)
+    x_inner_v, y_inner_v = mesh.domain_points(5000)
+    x_bd_v, y_bd_v = mesh.boundary_points(1000)
     x_if_v, y_if_v = mesh.interface_points(2000)
     z_inner_v = mesh.sign(x_inner_v, y_inner_v)
     z_bd_v = torch.ones_like(x_bd_v)
@@ -232,19 +233,17 @@ def main():
     r_if = torch.sqrt(x_if ** 2 + y_if ** 2)
     r_if_v = torch.sqrt(x_if_v ** 2 + y_if_v ** 2)
 
-    theta = torch.arctan2(y_if, x_if)
-    fig, ax = plt.subplots()
-    ax.scatter(theta, k_if, s=1)
-    plt.show()
-
     # Plot the training data
-    fig, ax = plt.subplots()
-    ax.scatter(x_inner, y_inner, c=z_inner, s=1)
-    ax.scatter(x_bd, y_bd, s=1)
-    sca = ax.scatter(x_if, y_if, c=k_if, s=1)
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+    ax[0].scatter(x_inner, y_inner, c=z_inner, s=1)
+    ax[0].scatter(x_bd, y_bd, s=1)
+    sca = ax[0].scatter(x_if, y_if, c=k_if, s=1)
     # ax.quiver(x_bd, y_bd, nx_bd, ny_bd, angles="xy", scale_units="xy", scale=5)
     # ax.quiver(x_if, y_if, nx_if, ny_if, angles="xy", scale_units="xy", scale=5)
-    ax.axis('equal')
+    ax[0].axis('square')
+    ax[1].scatter(torch.arctan2(y_if, x_if), k_if, s=5)
+    ax[0].set_title("Training Data")
+    ax[1].set_title("Interface Curvature")
     plt.colorbar(sca)
     plt.show()
 
@@ -268,7 +267,7 @@ def main():
     # get the training parameters and total number of parameters
     u_params = dict(model.named_parameters())
     # 10 times the initial parameters
-    u_params_flatten = nn.utils.parameters_to_vector(u_params.values()) * 10.0
+    u_params_flatten = 10.0 * nn.utils.parameters_to_vector(u_params.values())
     nn.utils.vector_to_parameters(u_params_flatten, u_params.values())
     print(f"Number of parameters = {u_params_flatten.numel()}")
 
@@ -277,13 +276,13 @@ def main():
     beta = torch.tensor(100)
     Rf_inner = torch.zeros_like(x_inner)
     Rf_bd = torch.zeros_like(x_bd)
-    Rf_if_1 = k_if / Ca + (1 - 1 / beta) * torch.log(r_if) / (2 * torch.pi)
+    Rf_if_1 = -k_if / Ca + (1 - 1 / beta) * torch.log(r_if) / (2 * torch.pi)
     # Rf_if_1 = k_if / Ca
     Rf_if_2 = torch.zeros_like(x_if)
 
     Rf_inner_v = torch.zeros_like(x_inner_v)
     Rf_bd_v = torch.zeros_like(x_bd_v)
-    Rf_if_1_v = k_if_v / Ca + (1 - 1 / beta) * torch.log(r_if_v) / (2 * torch.pi)
+    Rf_if_1_v = -k_if_v / Ca + (1 - 1 / beta) * torch.log(r_if_v) / (2 * torch.pi)
     # Rf_if_1_v = k_if_v / Ca
     Rf_if_2_v = torch.zeros_like(x_if_v)
 
@@ -407,10 +406,10 @@ def main():
 
 
     # Save the Model
-    torch.save(model, "model6.pt")
+    torch.save(model, "model_cos_2t.pt")
 
     # Plot the loss function
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(6, 6))
     ax.semilogy(savedloss, "k-", label="training loss")
     ax.semilogy(saveloss_vaild, "r--", label="test loss")
     ax.set_xlabel("Iteration")
@@ -420,8 +419,8 @@ def main():
     plt.show()
 
     # Plot the training results
-    plot_x, plot_y = mesh.domain_points(50000, r=2)
-    plot_x_bd, plot_y_bd = mesh.boundary_points(2000, r=2)
+    plot_x, plot_y = mesh.domain_points(50000)
+    plot_x_bd, plot_y_bd = mesh.boundary_points(2000)
     plot_z = mesh.sign(plot_x, plot_y)
     plot_z_bd = torch.ones_like(plot_x_bd)
     plot_x = torch.vstack((plot_x, plot_x_bd)).to(device)
@@ -444,7 +443,7 @@ def main():
         forward_dy(model, u_params, plot_x_if, plot_y_if, plot_z_if) * plot_ny
     ).cpu().detach().numpy()
     
-    fig = plt.figure()
+    fig = plt.figure(figsize=(14, 7))
     ax1 = fig.add_subplot(1, 2, 1, projection="3d")
     ax2 = fig.add_subplot(1, 2, 2)
     sca = ax1.scatter(plot_x.cpu(), plot_y.cpu(), result, c=result, s=1)
@@ -452,7 +451,9 @@ def main():
     ax1.set_xlabel("X")
     ax1.set_ylabel("Y")
     ax1.axes.zaxis.set_ticklabels([])
-    plt.colorbar(sca, shrink=0.5, aspect=7, pad=0.02)
+    ax1.set_title("Training Results")
+    ax2.set_title("Normal Prediction")
+    plt.colorbar(sca, shrink=0.5, aspect=10, pad=0.02)
     plt.show()
 
 
