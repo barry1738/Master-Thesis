@@ -72,6 +72,26 @@ class Model(nn.Module):
             input = self.act(layer(input))
         output = self.ln_out(input)
         return output
+    
+    def forward_dx(self, model, params, x, y):
+        """Compute the directional derivative of the model output with respect to x."""
+        output, vjpfunc = vjp(lambda primal: functional_call(model, params, (primal, y)), x)
+        return vjpfunc(torch.ones_like(output))[0]
+
+    def forward_dy(self, model, params, x, y):
+        """Compute the directional derivative of the model output with respect to y."""
+        output, vjpfunc = vjp(lambda primal: functional_call(model, params, (x, primal)), y)
+        return vjpfunc(torch.ones_like(output))[0]
+
+    def forward_dxx(self, model, params, x, y):
+        """Compute the second directional derivative of the model output with respect to x."""
+        output, vjpfunc = vjp(lambda primal: self.forward_dx(model, params, primal, y), x)
+        return vjpfunc(torch.ones_like(output))[0]
+
+    def forward_dyy(self, model, params, x, y):
+        """Compute the second directional derivative of the model output with respect to y."""
+        output, vjpfunc = vjp(lambda primal: self.forward_dy(model, params, x, primal), y)
+        return vjpfunc(torch.ones_like(output))[0]
 
 
 def exact_sol(x, y):
@@ -91,29 +111,10 @@ def rhs(x, y):
     return f.reshape(-1, 1)
 
 
-def forward_dx(model, params, x, y):
-    """Compute the directional derivative of the model output with respect to x."""
-    output, vjpfunc = vjp(lambda primal: functional_call(model, params, (primal, y)), x)
-    return vjpfunc(torch.ones_like(output))[0]
-
-def forward_dy(model, params, x, y):
-    """Compute the directional derivative of the model output with respect to y."""
-    output, vjpfunc = vjp(lambda primal: functional_call(model, params, (x, primal)), y)
-    return vjpfunc(torch.ones_like(output))[0]
-
-def forward_dxx(model, params, x, y):
-    """Compute the second directional derivative of the model output with respect to x."""
-    output, vjpfunc = vjp(lambda primal: forward_dx(model, params, primal, y), x)
-    return vjpfunc(torch.ones_like(output))[0]
-
-def forward_dyy(model, params, x, y):
-    """Compute the second directional derivative of the model output with respect to y."""
-    output, vjpfunc = vjp(lambda primal: forward_dy(model, params, x, primal), y)
-    return vjpfunc(torch.ones_like(output))[0]
-
 def compute_loss_Res(model, params, x, y, Rf_inner):
     """Compute the residual loss function for the PDE residual term."""
-    laplace = forward_dxx(model, params, x, y) + forward_dyy(model, params, x, y)
+    # laplace = forward_dxx(model, params, x, y) + forward_dyy(model, params, x, y)
+    laplace = model.forward_dxx(model, params, x, y) + model.forward_dyy(model, params, x, y)
     loss_Res = laplace - Rf_inner
     return loss_Res
 
@@ -153,7 +154,7 @@ def main():
     X_inner_vaild, Y_inner_vaild = X_inner_vaild_torch[:, 0].reshape(-1, 1), X_inner_vaild_torch[:, 1].reshape(-1, 1)
     X_bd_vaild, Y_bd_vaild = X_bd_vaild_torch[:, 0].reshape(-1, 1), X_bd_vaild_torch[:, 1].reshape(-1, 1)
 
-    model = Model(2, [100], 1).to(device)  # hidden layers = [...](list)
+    model = Model(2, [20, 20], 1).to(device)  # hidden layers = [...](list)
     print(model)
 
     # get the training parameters and total number of parameters
