@@ -15,7 +15,7 @@ print("device = ", device)
 
 
 pwd = "/home/barry/Desktop/2024_03_18/"
-dir_name = "cos_4t/"
+dir_name = "cos_6t/"
 if not os.path.exists(pwd + dir_name):
     print("Creating data directory...")
     os.makedirs(pwd + dir_name)
@@ -208,14 +208,14 @@ def cholesky(J, diff, mu):
 
 def main():
     # Define the model
-    model = Model(3, [20, 20, 20, 20, 20, 20, 20], 1).to(device)
+    model = Model(3, [100, 100], 1).to(device)
     # print(model)
 
     # Create the training data
-    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(4 * t), radius=2)
-    x_inner, y_inner = mesh.domain_points(1000)
-    x_bd, y_bd = mesh.boundary_points(100)
-    x_if, y_if = mesh.interface_points(100)
+    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(6 * t), radius=1.5)
+    x_inner, y_inner = mesh.domain_points(2000)
+    x_bd, y_bd = mesh.boundary_points(200)
+    x_if, y_if = mesh.interface_points(200)
     z_inner = mesh.sign(x_inner, y_inner)
     z_bd = torch.ones_like(x_bd)
 
@@ -256,7 +256,7 @@ def main():
     ax[1].set_title("Interface Curvature")
     plt.colorbar(sca)
     plt.savefig(pwd + dir_name + "training_data.png", dpi=300)
-    plt.show()
+    # plt.show()
 
     # Move the data to the device
     x_inner, y_inner, z_inner = x_inner.to(device), y_inner.to(device), z_inner.to(device)
@@ -288,17 +288,12 @@ def main():
     Rf_inner = torch.zeros_like(x_inner)
     Rf_bd = torch.zeros_like(x_bd)
     Rf_if_1 = -k_if / Ca + (1 - 1 / beta) * torch.log(r_if) / (2 * torch.pi)
-    # Rf_if_1 = k_if / Ca
     Rf_if_2 = torch.zeros_like(x_if)
 
     Rf_inner_v = torch.zeros_like(x_inner_v)
     Rf_bd_v = torch.zeros_like(x_bd_v)
     Rf_if_1_v = -k_if_v / Ca + (1 - 1 / beta) * torch.log(r_if_v) / (2 * torch.pi)
-    # Rf_if_1_v = k_if_v / Ca
     Rf_if_2_v = torch.zeros_like(x_if_v)
-
-    print(f"Rf_if_1 = {torch.max(Rf_if_1)}")
-
 
     # Start the training
     Niter = 1000
@@ -489,15 +484,14 @@ def main():
             alpha_bd = (1 - 0.1) * alpha_bd + 0.1 * alpha_bd_bar
             alpha_if_1 = (1 - 0.1) * alpha_if_1 + 0.1 * alpha_if_1_bar
             alpha_if_2 = (1 - 0.1) * alpha_if_2 + 0.1 * alpha_if_2_bar
-            print(
-                f"alpha_res = {alpha_res:.2f}, "
-                + f"alpha_bd = {alpha_bd:.2f}, "
-                + f"alpha_if_1 = {alpha_if_1:.2f}, "
-                + f"alpha_if_2 = {alpha_if_2:.2f}"
-            )
+            print(f"alpha_res = {alpha_res:.2f}")
+            print(f"alpha_bd = {alpha_bd:.2f}")
+            print(f"alpha_if_1 = {alpha_if_1:.2f}")
+            print(f"alpha_if_2 = {alpha_if_2:.2f}")
+
 
     # Save the Model
-    torch.save(model, pwd + dir_name + "model_cos_4t.pt")
+    torch.save(model, pwd + dir_name + "model_cos_6t.pt")
 
     # Plot the loss function
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -508,7 +502,7 @@ def main():
     ax.set_title("Loss function over iterations")
     ax.legend()
     plt.savefig(pwd + dir_name + "loss.png", dpi=300)
-    plt.show()
+    # plt.show()
 
     # Plot the training results
     plot_x, plot_y = mesh.domain_points(50000)
@@ -548,7 +542,7 @@ def main():
     ax2.set_title("Normal Prediction")
     plt.colorbar(sca, shrink=0.5, aspect=10, pad=0.02)
     plt.savefig(pwd + dir_name + "training_results.png", dpi=300)
-    plt.show()
+    # plt.show()
 
 
 if __name__ == '__main__':
