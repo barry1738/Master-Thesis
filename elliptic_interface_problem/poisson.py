@@ -3,7 +3,7 @@ import scipy
 import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
-from torch.func import functional_call, vmap, jacrev, vjp
+from torch.func import functional_call, vmap, jacrev, vjp, grad
 
 torch.set_default_dtype(torch.float64)
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -178,6 +178,8 @@ def main():
     mu = 1.0e5
     savedloss = []
     saveloss_vaild = []
+    alpha = 1.0
+    beta = 1.0
 
     for step in range(Niter):
         # Compute Jacobian matrix
@@ -199,8 +201,8 @@ def main():
 
         # print(f"jac_res = {Jac_res.size()}")
         # print(f"jac_b = {Jac_b.size()}")
-        Jac_res = Jac_res / torch.sqrt(torch.tensor(X_inner.size(0)))
-        Jac_b = Jac_b / torch.sqrt(torch.tensor(X_bd.size(0)))
+        Jac_res = Jac_res * torch.sqrt(alpha / torch.tensor(X_inner.size(0)))
+        Jac_b = Jac_b * torch.sqrt(beta / torch.tensor(X_bd.size(0)))
 
         # Put into loss functional to get L_vec
         L_vec_res = compute_loss_Res(model, u_params, X_inner, Y_inner, Rf_inner)
@@ -209,8 +211,8 @@ def main():
         L_vec_b_vaild = compute_loss_Bd(model, u_params, X_bd_vaild, Y_bd_vaild, Rf_bd_vaild)
         # print(f"loss_Res = {L_vec_res.size()}")
         # print(f"loss_Bd = {L_vec_b.size()}")
-        L_vec_res = L_vec_res / torch.sqrt(torch.tensor(X_inner.size(0)))
-        L_vec_b = L_vec_b / torch.sqrt(torch.tensor(X_bd.size(0)))
+        L_vec_res = L_vec_res * torch.sqrt(alpha / torch.tensor(X_inner.size(0)))
+        L_vec_b = L_vec_b * torch.sqrt(beta / torch.tensor(X_bd.size(0)))
         L_vec_res_vaild = L_vec_res_vaild / torch.sqrt(torch.tensor(X_inner_vaild.size(0)))
         L_vec_b_vaild = L_vec_b_vaild / torch.sqrt(torch.tensor(X_bd_vaild.size(0)))
 
@@ -238,9 +240,39 @@ def main():
         savedloss.append(loss.item())
         saveloss_vaild.append(loss_vaild.item())
 
+        if step % 50 == 0:
+            # Compute the aplha_bar and beta_bar
+            dloss_res_dparams = grad(
+                lambda primal: torch.sum(
+                    compute_loss_Res(model, primal, X_inner, Y_inner, Rf_inner)**2),
+                argnums=0)(u_params)
+            dloss_res_dparams_flatten = nn.utils.parameters_to_vector(dloss_res_dparams.values()) / torch.tensor(X_inner.size(0))
+            dloss_res_dparams_norm = torch.linalg.norm(dloss_res_dparams_flatten)
+
+            dloss_bd_dparams = grad(
+                lambda primal: torch.sum(
+                    compute_loss_Bd(model, primal, X_bd, Y_bd, Rf_bd)**2),
+                argnums=0)(u_params)
+            dloss_bd_dparams_flatten = nn.utils.parameters_to_vector(dloss_bd_dparams.values()) / torch.tensor(X_bd.size(0))
+            d_loss_bdparams_norm = torch.linalg.norm(dloss_bd_dparams_flatten)
+
+            alpha_bar = (
+                dloss_res_dparams_norm + d_loss_bdparams_norm
+            ) / dloss_res_dparams_norm
+            beta_bar = (
+                dloss_res_dparams_norm + d_loss_bdparams_norm
+            ) / d_loss_bdparams_norm
+
+            # Update the alpha and beta
+            alpha = (1-0.1) * alpha + 0.1 * alpha_bar
+            beta = (1-0.1) * beta + 0.1 * beta_bar
+            print(f"alpha = {alpha:.2f}, beta = {beta:.2f}")
+
+        # Check the convergence
         if (step == Niter - 1) or (loss < tol):
             break
-        
+
+        # Update the parameter mu
         if step % 3 == 0:
             if savedloss[step] > savedloss[step - 1]:
                 mu = min(2 * mu, 1e8)
