@@ -1,5 +1,6 @@
-import torch
+import os
 import time
+import torch
 import numpy as np
 import torch.nn as nn
 import scipy.stats.qmc as qmc
@@ -11,6 +12,15 @@ torch.cuda.empty_cache()
 torch.set_default_dtype(torch.float64)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("device = ", device)
+
+
+pwd = "/home/barry/Desktop/2024_03_18/"
+dir_name = "cos_4t/"
+if not os.path.exists(pwd + dir_name):
+    print("Creating data directory...")
+    os.makedirs(pwd + dir_name)
+else:
+    print("Data directory already exists...")
 
 
 class CreateMesh:
@@ -198,14 +208,14 @@ def cholesky(J, diff, mu):
 
 def main():
     # Define the model
-    model = Model(3, [20, 20], 1).to(device)
+    model = Model(3, [20, 20, 20, 20, 20, 20, 20], 1).to(device)
     # print(model)
 
     # Create the training data
-    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(2 * t), radius=2)
-    x_inner, y_inner = mesh.domain_points(2000)
-    x_bd, y_bd = mesh.boundary_points(200)
-    x_if, y_if = mesh.interface_points(200)
+    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(4 * t), radius=2)
+    x_inner, y_inner = mesh.domain_points(1000)
+    x_bd, y_bd = mesh.boundary_points(100)
+    x_if, y_if = mesh.interface_points(100)
     z_inner = mesh.sign(x_inner, y_inner)
     z_bd = torch.ones_like(x_bd)
 
@@ -245,6 +255,7 @@ def main():
     ax[0].set_title("Training Data")
     ax[1].set_title("Interface Curvature")
     plt.colorbar(sca)
+    plt.savefig(pwd + dir_name + "training_data.png", dpi=300)
     plt.show()
 
     # Move the data to the device
@@ -293,6 +304,9 @@ def main():
     Niter = 1000
     tol = 1.0e-9
     mu = 1.0e3
+    alpha_bd = 1.0
+    alpha_if_1 = 1.0
+    alpha_if_2 = 1.0
     savedloss = []
     saveloss_vaild = []
 
@@ -328,10 +342,10 @@ def main():
         jac_if_1 = torch.hstack([v.view(x_if.size(0), -1) for v in jac_if_1_dict.values()])
         jac_if_2 = torch.hstack([v.view(x_if.size(0), -1) for v in jac_if_2_dict.values()])
 
-        Jac_res = jac_res / torch.sqrt(torch.tensor(x_inner.size(0)))
-        Jac_bd = jac_bd / torch.sqrt(torch.tensor(x_bd.size(0)))
-        Jac_if_1 = jac_if_1 / torch.sqrt(torch.tensor(x_if.size(0)))
-        Jac_if_2 = jac_if_2 / torch.sqrt(torch.tensor(x_if.size(0)))
+        Jac_res = jac_res * torch.sqrt(1.0 / torch.tensor(x_inner.size(0)))
+        Jac_bd = jac_bd * torch.sqrt(alpha_bd / torch.tensor(x_bd.size(0)))
+        Jac_if_1 = jac_if_1 * torch.sqrt(alpha_if_1 / torch.tensor(x_if.size(0)))
+        Jac_if_2 = jac_if_2 * torch.sqrt(alpha_if_2 / torch.tensor(x_if.size(0)))
         # print(f"Jac_res.shape = {Jac_res.shape}")
         # print(f"Jac_bd.shape = {Jac_bd.shape}")
         # print(f"Jac_if_1.shape = {Jac_if_1.shape}")
@@ -346,10 +360,10 @@ def main():
         l_vec_bd_v = compute_loss_bd(model, u_params, x_bd_v, y_bd_v, z_bd_v, nx_bd_v, ny_bd_v, Rf_bd_v)
         l_vec_if_1_v = compute_loss_if_1(model, u_params, x_if_v, y_if_v, Rf_if_1_v)
         l_vec_if_2_v = compute_loss_if_2(model, u_params, x_if_v, y_if_v, nx_if_v, ny_if_v, Rf_if_2_v, beta)
-        L_vec_res = l_vec_res / torch.sqrt(torch.tensor(x_inner.size(0)))
-        L_vec_bd = l_vec_bd / torch.sqrt(torch.tensor(x_bd.size(0)))
-        L_vec_if_1 = l_vec_if_1 / torch.sqrt(torch.tensor(x_if.size(0)))
-        L_vec_if_2 = l_vec_if_2 / torch.sqrt(torch.tensor(x_if.size(0)))
+        L_vec_res = l_vec_res * torch.sqrt(1.0 / torch.tensor(x_inner.size(0)))
+        L_vec_bd = l_vec_bd * torch.sqrt(alpha_bd / torch.tensor(x_bd.size(0)))
+        L_vec_if_1 = l_vec_if_1 * torch.sqrt(alpha_if_1 / torch.tensor(x_if.size(0)))
+        L_vec_if_2 = l_vec_if_2 * torch.sqrt(alpha_if_2 / torch.tensor(x_if.size(0)))
         L_vec_res_v = l_vec_res_v / torch.sqrt(torch.tensor(x_inner_v.size(0)))
         L_vec_bd_v = l_vec_bd_v / torch.sqrt(torch.tensor(x_bd_v.size(0)))
         L_vec_if_1_v = l_vec_if_1_v / torch.sqrt(torch.tensor(x_if_v.size(0)))
@@ -404,9 +418,68 @@ def main():
             else:
                 mu = max(mu / 3.0, 1.0e-10)
 
+        # if step % 100 == 0:
+        #     # Compute the parameters alpha_bd, alpha_if_1 and alpha_if_2
+        #     dloss_bd_dp = grad(
+        #         lambda primal: torch.sum(
+        #             compute_loss_bd(
+        #                 model, primal, x_bd, y_bd, z_bd, nx_bd, ny_bd, Rf_bd
+        #             )
+        #         )
+        #     )(u_params)
+
+        #     dloss_if_1_dp = grad(
+        #         lambda primal: torch.sum(
+        #             compute_loss_if_1(model, primal, x_if, y_if, Rf_if_1)
+        #         )
+        #     )(u_params)
+
+        #     dloss_if_2_dp = grad(
+        #         lambda primal: torch.sum(
+        #             compute_loss_if_2(
+        #                 model, primal, x_if, y_if, nx_if, ny_if, Rf_if_2, beta
+        #             )
+        #         )
+        #     )(u_params)
+
+        #     dloss_bd_dp_flatten = nn.utils.parameters_to_vector(dloss_bd_dp.values()) / torch.tensor(x_bd.size(0))
+        #     dloss_if_1_dp_flatten = nn.utils.parameters_to_vector(dloss_if_1_dp.values()) / torch.tensor(x_if.size(0))
+        #     dloss_if_2_dp_flatten = nn.utils.parameters_to_vector(dloss_if_2_dp.values()) / torch.tensor(x_if.size(0))
+
+        #     dloss_bd_dp_norm = torch.linalg.norm(dloss_bd_dp_flatten)
+        #     dloss_if_1_dp_norm = torch.linalg.norm(dloss_if_1_dp_flatten)
+        #     dloss_if_2_dp_norm = torch.linalg.norm(dloss_if_2_dp_flatten)
+
+        #     alpha_bd_bar = (
+        #         dloss_bd_dp_norm +
+        #         dloss_if_1_dp_norm +
+        #         dloss_if_2_dp_norm
+        #     ) / dloss_bd_dp_norm
+
+        #     alpha_if_1_bar = (
+        #         dloss_bd_dp_norm +
+        #         dloss_if_1_dp_norm +
+        #         dloss_if_2_dp_norm
+        #     ) / dloss_if_1_dp_norm
+
+        #     alpha_if_2_bar = (
+        #         dloss_bd_dp_norm +
+        #         dloss_if_1_dp_norm +
+        #         dloss_if_2_dp_norm
+        #     ) / dloss_if_2_dp_norm
+
+        #     # Update the parameters alpha_bd, alpha_if_1 and alpha_if_2
+        #     alpha_bd = (1 - 0.1) * alpha_bd + 0.1 * alpha_bd_bar
+        #     alpha_if_1 = (1 - 0.1) * alpha_if_1 + 0.1 * alpha_if_1_bar
+        #     alpha_if_2 = (1 - 0.1) * alpha_if_2 + 0.1 * alpha_if_2_bar
+        #     print(
+        #         f"alpha_bd = {alpha_bd:.2f}, "
+        #         + f"alpha_if_1 = {alpha_if_1:.2f}, "
+        #         + f"alpha_if_2 = {alpha_if_2:.2f}"
+        #     )
 
     # Save the Model
-    torch.save(model, "model_cos_2t.pt")
+    torch.save(model, pwd + dir_name + "model_cos_4t.pt")
 
     # Plot the loss function
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -416,6 +489,7 @@ def main():
     ax.set_ylabel("Loss")
     ax.set_title("Loss function over iterations")
     ax.legend()
+    plt.savefig(pwd + dir_name + "loss.png", dpi=300)
     plt.show()
 
     # Plot the training results
@@ -428,10 +502,11 @@ def main():
     plot_z = torch.vstack((plot_z, plot_z_bd)).to(device)
     result = functional_call(model, u_params, (plot_x, plot_y, plot_z)).cpu().detach().numpy()
 
-    plot_x_if, plot_y_if = mesh.interface_points(1000)
+    plot_theta = torch.linspace(0, 2 * np.pi, 10000).reshape(-1, 1)
+    plot_radius = mesh.func(plot_theta)
+    plot_x_if = plot_radius * torch.cos(plot_theta)
+    plot_y_if = plot_radius * torch.sin(plot_theta)
     plot_z_if = torch.ones_like(plot_x_if)
-    plot_theta = torch.atan2(plot_y_if, plot_x_if)
-    plot_theta = torch.where(plot_theta<0, 2*torch.pi+plot_theta, plot_theta)
     plot_nx, plot_ny = mesh.compute_interface_normal_vec(plot_x_if, plot_y_if)
     plot_x_if = plot_x_if.to(device)
     plot_y_if = plot_y_if.to(device)
@@ -446,14 +521,15 @@ def main():
     fig = plt.figure(figsize=(14, 7))
     ax1 = fig.add_subplot(1, 2, 1, projection="3d")
     ax2 = fig.add_subplot(1, 2, 2)
-    sca = ax1.scatter(plot_x.cpu(), plot_y.cpu(), result, c=result, s=1)
-    ax2.scatter(plot_theta, pred_normal, s=1)
+    sca = ax1.scatter(plot_x.cpu(), plot_y.cpu(), result, c=result, s=1, cmap="coolwarm")
+    ax2.plot(plot_theta, pred_normal, "k-", linewidth=2)
     ax1.set_xlabel("X")
     ax1.set_ylabel("Y")
     ax1.axes.zaxis.set_ticklabels([])
     ax1.set_title("Training Results")
     ax2.set_title("Normal Prediction")
     plt.colorbar(sca, shrink=0.5, aspect=10, pad=0.02)
+    plt.savefig(pwd + dir_name + "training_results.png", dpi=300)
     plt.show()
 
 
