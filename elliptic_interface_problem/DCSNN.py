@@ -304,6 +304,7 @@ def main():
     Niter = 1000
     tol = 1.0e-9
     mu = 1.0e3
+    alpha_res = 1.0
     alpha_bd = 1.0
     alpha_if_1 = 1.0
     alpha_if_2 = 1.0
@@ -342,7 +343,7 @@ def main():
         jac_if_1 = torch.hstack([v.view(x_if.size(0), -1) for v in jac_if_1_dict.values()])
         jac_if_2 = torch.hstack([v.view(x_if.size(0), -1) for v in jac_if_2_dict.values()])
 
-        Jac_res = jac_res * torch.sqrt(1.0 / torch.tensor(x_inner.size(0)))
+        Jac_res = jac_res * torch.sqrt(alpha_res / torch.tensor(x_inner.size(0)))
         Jac_bd = jac_bd * torch.sqrt(alpha_bd / torch.tensor(x_bd.size(0)))
         Jac_if_1 = jac_if_1 * torch.sqrt(alpha_if_1 / torch.tensor(x_if.size(0)))
         Jac_if_2 = jac_if_2 * torch.sqrt(alpha_if_2 / torch.tensor(x_if.size(0)))
@@ -360,7 +361,7 @@ def main():
         l_vec_bd_v = compute_loss_bd(model, u_params, x_bd_v, y_bd_v, z_bd_v, nx_bd_v, ny_bd_v, Rf_bd_v)
         l_vec_if_1_v = compute_loss_if_1(model, u_params, x_if_v, y_if_v, Rf_if_1_v)
         l_vec_if_2_v = compute_loss_if_2(model, u_params, x_if_v, y_if_v, nx_if_v, ny_if_v, Rf_if_2_v, beta)
-        L_vec_res = l_vec_res * torch.sqrt(1.0 / torch.tensor(x_inner.size(0)))
+        L_vec_res = l_vec_res * torch.sqrt(alpha_res / torch.tensor(x_inner.size(0)))
         L_vec_bd = l_vec_bd * torch.sqrt(alpha_bd / torch.tensor(x_bd.size(0)))
         L_vec_if_1 = l_vec_if_1 * torch.sqrt(alpha_if_1 / torch.tensor(x_if.size(0)))
         L_vec_if_2 = l_vec_if_2 * torch.sqrt(alpha_if_2 / torch.tensor(x_if.size(0)))
@@ -418,65 +419,82 @@ def main():
             else:
                 mu = max(mu / 3.0, 1.0e-10)
 
-        # if step % 100 == 0:
-        #     # Compute the parameters alpha_bd, alpha_if_1 and alpha_if_2
-        #     dloss_bd_dp = grad(
-        #         lambda primal: torch.sum(
-        #             compute_loss_bd(
-        #                 model, primal, x_bd, y_bd, z_bd, nx_bd, ny_bd, Rf_bd
-        #             )
-        #         )
-        #     )(u_params)
+        if step % 100 == 0:
+            # Compute the parameters alpha_bd, alpha_if_1 and alpha_if_2
+            dloss_res_dp = grad(
+                lambda primal: torch.sum(
+                    compute_loss_res(model, primal, x_inner, y_inner, z_inner, Rf_inner)
+                )
+            )(u_params)
 
-        #     dloss_if_1_dp = grad(
-        #         lambda primal: torch.sum(
-        #             compute_loss_if_1(model, primal, x_if, y_if, Rf_if_1)
-        #         )
-        #     )(u_params)
+            dloss_bd_dp = grad(
+                lambda primal: torch.sum(
+                    compute_loss_bd(
+                        model, primal, x_bd, y_bd, z_bd, nx_bd, ny_bd, Rf_bd
+                    )
+                )
+            )(u_params)
 
-        #     dloss_if_2_dp = grad(
-        #         lambda primal: torch.sum(
-        #             compute_loss_if_2(
-        #                 model, primal, x_if, y_if, nx_if, ny_if, Rf_if_2, beta
-        #             )
-        #         )
-        #     )(u_params)
+            dloss_if_1_dp = grad(
+                lambda primal: torch.sum(
+                    compute_loss_if_1(model, primal, x_if, y_if, Rf_if_1)
+                )
+            )(u_params)
 
-        #     dloss_bd_dp_flatten = nn.utils.parameters_to_vector(dloss_bd_dp.values()) / torch.tensor(x_bd.size(0))
-        #     dloss_if_1_dp_flatten = nn.utils.parameters_to_vector(dloss_if_1_dp.values()) / torch.tensor(x_if.size(0))
-        #     dloss_if_2_dp_flatten = nn.utils.parameters_to_vector(dloss_if_2_dp.values()) / torch.tensor(x_if.size(0))
+            dloss_if_2_dp = grad(
+                lambda primal: torch.sum(
+                    compute_loss_if_2(
+                        model, primal, x_if, y_if, nx_if, ny_if, Rf_if_2, beta
+                    )
+                )
+            )(u_params)
 
-        #     dloss_bd_dp_norm = torch.linalg.norm(dloss_bd_dp_flatten)
-        #     dloss_if_1_dp_norm = torch.linalg.norm(dloss_if_1_dp_flatten)
-        #     dloss_if_2_dp_norm = torch.linalg.norm(dloss_if_2_dp_flatten)
 
-        #     alpha_bd_bar = (
-        #         dloss_bd_dp_norm +
-        #         dloss_if_1_dp_norm +
-        #         dloss_if_2_dp_norm
-        #     ) / dloss_bd_dp_norm
+            dloss_res_dp_flatten = nn.utils.parameters_to_vector(dloss_res_dp.values()) / torch.tensor(x_inner.size(0))
+            dloss_bd_dp_flatten = nn.utils.parameters_to_vector(dloss_bd_dp.values()) / torch.tensor(x_bd.size(0))
+            dloss_if_1_dp_flatten = nn.utils.parameters_to_vector(dloss_if_1_dp.values()) / torch.tensor(x_if.size(0))
+            dloss_if_2_dp_flatten = nn.utils.parameters_to_vector(dloss_if_2_dp.values()) / torch.tensor(x_if.size(0))
 
-        #     alpha_if_1_bar = (
-        #         dloss_bd_dp_norm +
-        #         dloss_if_1_dp_norm +
-        #         dloss_if_2_dp_norm
-        #     ) / dloss_if_1_dp_norm
+            dloss_res_dp_norm = torch.linalg.norm(dloss_res_dp_flatten)
+            dloss_bd_dp_norm = torch.linalg.norm(dloss_bd_dp_flatten)
+            dloss_if_1_dp_norm = torch.linalg.norm(dloss_if_1_dp_flatten)
+            dloss_if_2_dp_norm = torch.linalg.norm(dloss_if_2_dp_flatten)
 
-        #     alpha_if_2_bar = (
-        #         dloss_bd_dp_norm +
-        #         dloss_if_1_dp_norm +
-        #         dloss_if_2_dp_norm
-        #     ) / dloss_if_2_dp_norm
+            alpha_res_bar = (
+                dloss_bd_dp_norm +
+                dloss_if_1_dp_norm +
+                dloss_if_2_dp_norm
+            ) / dloss_res_dp_norm
 
-        #     # Update the parameters alpha_bd, alpha_if_1 and alpha_if_2
-        #     alpha_bd = (1 - 0.1) * alpha_bd + 0.1 * alpha_bd_bar
-        #     alpha_if_1 = (1 - 0.1) * alpha_if_1 + 0.1 * alpha_if_1_bar
-        #     alpha_if_2 = (1 - 0.1) * alpha_if_2 + 0.1 * alpha_if_2_bar
-        #     print(
-        #         f"alpha_bd = {alpha_bd:.2f}, "
-        #         + f"alpha_if_1 = {alpha_if_1:.2f}, "
-        #         + f"alpha_if_2 = {alpha_if_2:.2f}"
-        #     )
+            alpha_bd_bar = (
+                dloss_bd_dp_norm +
+                dloss_if_1_dp_norm +
+                dloss_if_2_dp_norm
+            ) / dloss_bd_dp_norm
+
+            alpha_if_1_bar = (
+                dloss_bd_dp_norm +
+                dloss_if_1_dp_norm +
+                dloss_if_2_dp_norm
+            ) / dloss_if_1_dp_norm
+
+            alpha_if_2_bar = (
+                dloss_bd_dp_norm +
+                dloss_if_1_dp_norm +
+                dloss_if_2_dp_norm
+            ) / dloss_if_2_dp_norm
+
+            # Update the parameters alpha_bd, alpha_if_1 and alpha_if_2
+            alpha_res = (1 - 0.1) * alpha_res + 0.1 * alpha_res_bar
+            alpha_bd = (1 - 0.1) * alpha_bd + 0.1 * alpha_bd_bar
+            alpha_if_1 = (1 - 0.1) * alpha_if_1 + 0.1 * alpha_if_1_bar
+            alpha_if_2 = (1 - 0.1) * alpha_if_2 + 0.1 * alpha_if_2_bar
+            print(
+                f"alpha_res = {alpha_res:.2f}, "
+                + f"alpha_bd = {alpha_bd:.2f}, "
+                + f"alpha_if_1 = {alpha_if_1:.2f}, "
+                + f"alpha_if_2 = {alpha_if_2:.2f}"
+            )
 
     # Save the Model
     torch.save(model, pwd + dir_name + "model_cos_4t.pt")
