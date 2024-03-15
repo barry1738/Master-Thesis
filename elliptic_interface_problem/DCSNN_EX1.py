@@ -253,7 +253,7 @@ def main():
     Normal_y_valid = torch.from_numpy(normal_y_valid).to(device)
 
     # Define the model
-    model = Model(3, [40], 1).to(device)  # hidden layers = [...](list)
+    model = Model(3, [20, 20, 20], 1).to(device)  # hidden layers = [...](list)
     print(model)
 
     # get the training parameters and total number of parameters
