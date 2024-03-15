@@ -208,21 +208,21 @@ def cholesky(J, diff, mu):
 
 def main():
     # Define the model
-    model = Model(3, [100, 100], 1).to(device)
+    model = Model(3, [40, 40, 40, 40], 1).to(device)
     # print(model)
 
     # Create the training data
     mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(6 * t), radius=1.5)
-    x_inner, y_inner = mesh.domain_points(2000)
+    x_inner, y_inner = mesh.domain_points(5000)
     x_bd, y_bd = mesh.boundary_points(200)
     x_if, y_if = mesh.interface_points(200)
     z_inner = mesh.sign(x_inner, y_inner)
     z_bd = torch.ones_like(x_bd)
 
     # Create the validation data
-    x_inner_v, y_inner_v = mesh.domain_points(5000)
+    x_inner_v, y_inner_v = mesh.domain_points(10000)
     x_bd_v, y_bd_v = mesh.boundary_points(1000)
-    x_if_v, y_if_v = mesh.interface_points(2000)
+    x_if_v, y_if_v = mesh.interface_points(1000)
     z_inner_v = mesh.sign(x_inner_v, y_inner_v)
     z_bd_v = torch.ones_like(x_bd_v)
 
