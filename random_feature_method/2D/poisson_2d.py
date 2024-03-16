@@ -381,7 +381,6 @@ def main():
         x_min = X_min + (X_max - X_min) * i / M_p
         x_max = X_min + (X_max - X_min) * (i + 1) / M_p
         for j in range(M_p):
-            print(f'i = {i}, j = {j}')
             y_min = Y_min + (Y_max - Y_min) * j / M_p
             y_max = Y_min + (Y_max - Y_min) * (j + 1) / M_p
 
