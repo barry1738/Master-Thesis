@@ -2,7 +2,6 @@ import torch
 import matplotlib.pyplot as plt
 # import matplotlib.ticker as mtick
 
-# TODO: interface點一致或不一致會不會引響結果的誤差
 
 torch.set_default_dtype(torch.float64)
 plt.rcParams.update({"font.size": 12})
@@ -355,7 +354,7 @@ def test_model(model, weights, biases, J_n, Q, u_hat):
 def main():
     J_n = 200  # the number of basis functions per PoU region
     Q = 20  # the number of collocation points per axis of PoU region
-    M_p = 3  # the number of PoU regions per axis
+    M_p = 4  # the number of PoU regions per axis
     R_m = 1  # the range of the random weights and biases
 
     # Initialize the weights and biases
@@ -382,44 +381,56 @@ def main():
         x_min = X_min + (X_max - X_min) * i / M_p
         x_max = X_min + (X_max - X_min) * (i + 1) / M_p
         for j in range(M_p):
+            print(f'i = {i}, j = {j}')
             y_min = Y_min + (Y_max - Y_min) * j / M_p
             y_max = Y_min + (Y_max - Y_min) * (j + 1) / M_p
 
             internal_x = torch.Tensor(Q * Q, 1).uniform_(x_min, x_max)
             internal_y = torch.Tensor(Q * Q, 1).uniform_(y_min, y_max)
 
-            boundary_x_left = x_min * torch.ones(Q, 1)
-            # if i == 0:
-            boundary_y_left = torch.vstack((
-                y_min, torch.Tensor(Q - 2, 1).uniform_(y_min, y_max), y_max
-            ))
-            # else:
-            #     boundary_y_left = torch.torch.linspace(y_min, y_max, Q).reshape(-1, 1)
+            # Left boundary
+            if i == 0:
+                boundary_x_left = x_min * torch.ones(Q, 1)
+                boundary_y_left = torch.vstack(
+                    (y_min, torch.Tensor(Q - 2, 1).uniform_(y_min, y_max), y_max)
+                )
+            else:
+                boundary_x_left = boundary_points_right[i-1][j][0]
+                boundary_y_left = boundary_points_right[i-1][j][1]
 
+            # Right boundary
+            if i == M_p - 1:
+                boundary_x_right = x_max * torch.ones(Q, 1)
+                boundary_y_right = torch.vstack(
+                    (y_min, torch.Tensor(Q - 2, 1).uniform_(y_min, y_max), y_max)
+                )
+            else:
+                boundary_x_right = x_max * torch.ones(Q, 1)
+                boundary_y_right = torch.vstack(
+                    (y_min, torch.Tensor(Q - 2, 1).uniform_(y_min, y_max), y_max)
+                )
 
-            boundary_x_right = x_max * torch.ones(Q, 1)
-            # if i == M_p - 1:
-            boundary_y_right = torch.vstack((
-                y_min, torch.Tensor(Q - 2, 1).uniform_(y_min, y_max), y_max
-            ))
-            # else:
-            #     boundary_y_right = torch.torch.linspace(y_min, y_max, Q).reshape(-1, 1)
+            # Bottom boundary
+            if j == 0:
+                boundary_x_bottom = torch.vstack(
+                    (x_min, torch.Tensor(Q - 2, 1).uniform_(x_min, x_max), x_max)
+                )
+                boundary_y_bottom = y_min * torch.ones(Q, 1)
+            else:
+                boundary_x_bottom = boundary_p_top[j - 1][0]
+                boundary_y_bottom = boundary_p_top[j - 1][1]
 
-            # if j == 0:
-            boundary_x_bottom = torch.vstack((
-                x_min, torch.Tensor(Q - 2, 1).uniform_(x_min, x_max), x_max
-            ))
-            # else:
-            #     boundary_x_bottom = torch.torch.linspace(x_min, x_max, Q).reshape(-1, 1)
-            boundary_y_bottom = y_min * torch.ones(Q, 1)
-
-            # if j == M_p - 1:
-            boundary_x_top = torch.vstack((
-                x_min, torch.Tensor(Q - 2, 1).uniform_(x_min, x_max), x_max
-            ))
-            # else:
-            #     boundary_x_top = torch.torch.linspace(x_min, x_max, Q).reshape(-1, 1)
-            boundary_y_top = y_max * torch.ones(Q, 1)
+            # Top boundary
+            if j == M_p - 1:
+                boundary_x_top = torch.vstack(
+                    (x_min, torch.Tensor(Q - 2, 1).uniform_(x_min, x_max), x_max)
+                )
+                boundary_y_top = y_max * torch.ones(Q, 1)
+            else:
+                boundary_x_top = torch.vstack(
+                    (x_min, torch.Tensor(Q - 2, 1).uniform_(x_min, x_max), x_max)
+                )
+                boundary_y_top = y_max * torch.ones(Q, 1)
 
             # append the points
             internal_p.append([internal_x, internal_y])
