@@ -1,4 +1,5 @@
 import torch
+import scipy.stats.qmc as qmc
 import matplotlib.pyplot as plt
 # import matplotlib.ticker as mtick
 
@@ -353,8 +354,8 @@ def test_model(model, weights, biases, J_n, Q, u_hat):
 
 def main():
     J_n = 200  # the number of basis functions per PoU region
-    Q = 20  # the number of collocation points per axis of PoU region
-    M_p = 4  # the number of PoU regions per axis
+    Q = 10  # the number of collocation points per axis of PoU region
+    M_p = 3  # the number of PoU regions per axis
     R_m = 1  # the range of the random weights and biases
 
     # Initialize the weights and biases
@@ -384,14 +385,26 @@ def main():
             y_min = Y_min + (Y_max - Y_min) * j / M_p
             y_max = Y_min + (Y_max - Y_min) * (j + 1) / M_p
 
-            internal_x = torch.Tensor(Q * Q, 1).uniform_(x_min, x_max)
-            internal_y = torch.Tensor(Q * Q, 1).uniform_(y_min, y_max)
+            internal_x = (
+                torch.tensor(qmc.LatinHypercube(d=1).random(n=Q * Q)) * (x_max - x_min)
+                + x_min
+            )
+            internal_y = (
+                torch.tensor(qmc.LatinHypercube(d=1).random(n=Q * Q)) * (y_max - y_min)
+                + y_min
+            )
 
             # Left boundary
             if i == 0:
                 boundary_x_left = x_min * torch.ones(Q, 1)
                 boundary_y_left = torch.vstack(
-                    (y_min, torch.Tensor(Q - 2, 1).uniform_(y_min, y_max), y_max)
+                    (
+                        y_min,
+                        torch.tensor(qmc.LatinHypercube(d=1).random(n=Q - 2))
+                        * (y_max - y_min)
+                        + y_min,
+                        y_max,
+                    )
                 )
             else:
                 boundary_x_left = boundary_points_right[i-1][j][0]
@@ -401,18 +414,36 @@ def main():
             if i == M_p - 1:
                 boundary_x_right = x_max * torch.ones(Q, 1)
                 boundary_y_right = torch.vstack(
-                    (y_min, torch.Tensor(Q - 2, 1).uniform_(y_min, y_max), y_max)
+                    (
+                        y_min,
+                        torch.tensor(qmc.LatinHypercube(d=1).random(n=Q - 2))
+                        * (y_max - y_min)
+                        + y_min,
+                        y_max,
+                    )
                 )
             else:
                 boundary_x_right = x_max * torch.ones(Q, 1)
                 boundary_y_right = torch.vstack(
-                    (y_min, torch.Tensor(Q - 2, 1).uniform_(y_min, y_max), y_max)
+                    (
+                        y_min,
+                        torch.tensor(qmc.LatinHypercube(d=1).random(n=Q - 2))
+                        * (y_max - y_min)
+                        + y_min,
+                        y_max,
+                    )
                 )
 
             # Bottom boundary
             if j == 0:
                 boundary_x_bottom = torch.vstack(
-                    (x_min, torch.Tensor(Q - 2, 1).uniform_(x_min, x_max), x_max)
+                    (
+                        x_min,
+                        torch.tensor(qmc.LatinHypercube(d=1).random(n=Q - 2))
+                        * (x_max - x_min)
+                        + x_min,
+                        x_max,
+                    )
                 )
                 boundary_y_bottom = y_min * torch.ones(Q, 1)
             else:
@@ -422,12 +453,24 @@ def main():
             # Top boundary
             if j == M_p - 1:
                 boundary_x_top = torch.vstack(
-                    (x_min, torch.Tensor(Q - 2, 1).uniform_(x_min, x_max), x_max)
+                    (
+                        x_min,
+                        torch.tensor(qmc.LatinHypercube(d=1).random(n=Q - 2))
+                        * (x_max - x_min)
+                        + x_min,
+                        x_max,
+                    )
                 )
                 boundary_y_top = y_max * torch.ones(Q, 1)
             else:
                 boundary_x_top = torch.vstack(
-                    (x_min, torch.Tensor(Q - 2, 1).uniform_(x_min, x_max), x_max)
+                    (
+                        x_min,
+                        torch.tensor(qmc.LatinHypercube(d=1).random(n=Q - 2))
+                        * (x_max - x_min)
+                        + x_min,
+                        x_max,
+                    )
                 )
                 boundary_y_top = y_max * torch.ones(Q, 1)
 
