@@ -14,8 +14,10 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print("device = ", device)
 
 
-pwd = "/home/barry/Desktop/2024_03_18/"
-dir_name = "cos_6t/"
+# pwd = "/home/barry/Desktop/2024_03_18/"
+pwd = "C:\\Users\\barry\\Desktop\\2024_03_18\\"
+# dir_name = "cos_6t/"
+dir_name = "cos_4t\\"
 if not os.path.exists(pwd + dir_name):
     print("Creating data directory...")
     os.makedirs(pwd + dir_name)
@@ -28,13 +30,29 @@ class CreateMesh:
         self.func = interface_func
         self.r = radius
 
+    # def domain_points(self, n, *, xc=0, yc=0):
+    #     """Uniform random distribution within a circle"""
+    #     radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
+    #     theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
+    #     x = xc + radius * torch.cos(theta)
+    #     y = yc + radius * torch.sin(theta)
+    #     return x, y
+
     def domain_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution within a circle"""
-        radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
-        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
+        nx = n // 5
+        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=2*nx))
+        theta_if = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=3*nx))
+        radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=2*nx)))
+        radius_if = self.func(theta_if)
+        x_eps = torch.Tensor(3*nx, 1).uniform_(-0.2, 0.2)
+        y_eps = torch.Tensor(3*nx, 1).uniform_(-0.2, 0.2)
         x = xc + radius * torch.cos(theta)
         y = yc + radius * torch.sin(theta)
-        return x, y
+        x_if = xc + (radius_if + x_eps) * torch.cos(theta_if)
+        y_if = yc + (radius_if + y_eps) * torch.sin(theta_if)
+        return torch.vstack((x, x_if)), torch.vstack((y, y_if))
+        # return x_if, y_if
     
     def boundary_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution on a circle"""
@@ -104,7 +122,7 @@ class Model(nn.Module):
             self.hidden.append(nn.Linear(h_dim[i], h_dim[i + 1]))
 
         # output layer
-        self.ln_out = nn.Linear(h_dim[-1], out_dim, bias=False)  # bias=True or False?
+        self.ln_out = nn.Linear(h_dim[-1], out_dim, bias=True)  # bias=True or False?
 
         # activation function
         self.act = nn.Sigmoid()
@@ -208,13 +226,13 @@ def cholesky(J, diff, mu):
 
 def main():
     # Define the model
-    model = Model(3, [40, 40, 40, 40], 1).to(device)
+    model = Model(3, [30, 30, 30, 30], 1).to(device)
     # print(model)
 
     # Create the training data
-    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(6 * t), radius=1.5)
-    x_inner, y_inner = mesh.domain_points(5000)
-    x_bd, y_bd = mesh.boundary_points(200)
+    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(4 * t), radius=1.5)
+    x_inner, y_inner = mesh.domain_points(2000)
+    x_bd, y_bd = mesh.boundary_points(100)
     x_if, y_if = mesh.interface_points(200)
     z_inner = mesh.sign(x_inner, y_inner)
     z_bd = torch.ones_like(x_bd)
@@ -256,7 +274,7 @@ def main():
     ax[1].set_title("Interface Curvature")
     plt.colorbar(sca)
     plt.savefig(pwd + dir_name + "training_data.png", dpi=300)
-    # plt.show()
+    plt.show()
 
     # Move the data to the device
     x_inner, y_inner, z_inner = x_inner.to(device), y_inner.to(device), z_inner.to(device)
@@ -408,13 +426,13 @@ def main():
             model.load_state_dict(u_params)
             print(f"--- {time.time() - start_time:.2f} seconds ---")
             break
-        elif step % 5 == 0:
+        elif step % 3 == 0:
             if savedloss[step] > savedloss[step - 1]:
                 mu = min(mu * 2.0, 1.0e8)
             else:
                 mu = max(mu / 3.0, 1.0e-10)
 
-        if step % 100 == 0:
+        if step % 200 == 0:
             # Compute the parameters alpha_bd, alpha_if_1 and alpha_if_2
             dloss_res_dp = grad(
                 lambda primal: torch.sum(
@@ -502,7 +520,7 @@ def main():
     ax.set_title("Loss function over iterations")
     ax.legend()
     plt.savefig(pwd + dir_name + "loss.png", dpi=300)
-    # plt.show()
+    plt.show()
 
     # Plot the training results
     plot_x, plot_y = mesh.domain_points(50000)
@@ -542,7 +560,7 @@ def main():
     ax2.set_title("Normal Prediction")
     plt.colorbar(sca, shrink=0.5, aspect=10, pad=0.02)
     plt.savefig(pwd + dir_name + "training_results.png", dpi=300)
-    # plt.show()
+    plt.show()
 
 
 if __name__ == '__main__':
