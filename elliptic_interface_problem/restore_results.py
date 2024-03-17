@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import scipy.stats.qmc as qmc
-from torch.func import functional_call, vjp
+from torch.func import functional_call, vjp, grad, vmap
 
 
 torch.set_default_dtype(torch.float64)
@@ -36,37 +37,36 @@ class Model(nn.Module):
     
 
 class CreateMesh:
-    def __init__(self) -> None:
-        pass
+    def __init__(self, interface_func, *, radius=1):
+        self.func = interface_func
+        self.r = radius
 
-    def domain_points(self, n, *, xc=0, yc=0, r=2):
+    def domain_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution within a circle"""
-        radius = r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n))
-        theta = 2 * np.pi * qmc.LatinHypercube(d=1).random(n=n)
-        x = xc + radius * np.cos(theta)
-        y = yc + radius * np.sin(theta)
-        return torch.tensor(x), torch.tensor(y)
+        radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
+        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
+        x = xc + radius * torch.cos(theta)
+        y = yc + radius * torch.sin(theta)
+        return x, y
 
-    def boundary_points(self, n, *, xc=0, yc=0, r=2):
+    def boundary_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution on a circle"""
-        theta = 2 * np.pi * qmc.LatinHypercube(d=1).random(n=n)
-        x = xc + r * np.cos(theta)
-        y = yc + r * np.sin(theta)
-        return torch.tensor(x), torch.tensor(y)
+        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
+        x = xc + self.r * torch.cos(theta)
+        y = yc + self.r * torch.sin(theta)
+        return x, y
 
     def interface_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution on a polar curve"""
-        theta = 2 * np.pi * qmc.LatinHypercube(d=1).random(n=n)
-        # radius = 1 + np.cos(2 * theta) / 10
-        radius = 1
-        x = xc + radius * np.cos(theta)
-        y = yc + radius * np.sin(theta)
-        return torch.tensor(x), torch.tensor(y)
+        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
+        radius = self.func(theta)
+        x = xc + radius * torch.cos(theta)
+        y = yc + radius * torch.sin(theta)
+        return x, y
 
     def sign(self, x, y):
         """Check the points inside the polar curve, return z = -1 if inside, z = 1 if outside"""
-        # dist = torch.sqrt(x**2 + y**2) - (1 + torch.cos(2 * torch.atan2(y, x)) / 10)
-        dist = torch.sqrt(x ** 2 + y ** 2) - 1
+        dist = torch.sqrt(x**2 + y**2) - self.func(torch.atan2(y, x))
         z = torch.where(dist > 0, 1, -1)
         return z
 
@@ -82,12 +82,10 @@ class CreateMesh:
     def compute_interface_normal_vec(self, x, y):
         """Compute the interface normal vector"""
         theta = torch.atan2(y, x)
-        # ri = 1 + torch.cos(2 * theta) / 10
-        # dri = -2 * torch.sin(2 * theta) / 10
-        ri = 1
-        dri = 0
-        nx = dri * torch.sin(theta) + ri * torch.cos(theta)
-        ny = -dri * torch.cos(theta) + ri * torch.sin(theta)
+        r = self.func(theta)
+        drdt = vmap(grad(self.func))(theta.reshape(-1)).view(-1, 1)
+        nx = drdt * torch.sin(theta) + r * torch.cos(theta)
+        ny = -drdt * torch.cos(theta) + r * torch.sin(theta)
         dist = torch.sqrt(nx**2 + ny**2)
         nx = nx / dist
         ny = ny / dist
@@ -96,12 +94,9 @@ class CreateMesh:
     def compute_interface_curvature(self, x, y):
         """Compute the interface curvature"""
         theta = torch.atan2(y, x)
-        # r = 1 + torch.cos(2 * theta) / 10
-        # drdt = -2 * torch.sin(2 * theta) / 10
-        # d2rdt2 = -4 * torch.cos(2 * theta) / 10
-        r = 1
-        drdt = 0
-        d2rdt2 = 0
+        r = self.func(theta)
+        drdt = vmap(grad(self.func))(theta.reshape(-1)).view(-1, 1)
+        d2rdt2 = vmap(grad(grad(self.func)))(theta.reshape(-1)).view(-1, 1)
         dxdt = drdt * torch.cos(theta) - r * torch.sin(theta)
         dydt = drdt * torch.sin(theta) + r * torch.cos(theta)
         d2xdt2 = (
@@ -116,7 +111,7 @@ class CreateMesh:
         )
         curvature = (dxdt * d2ydt2 - dydt * d2xdt2) / (dxdt**2 + dydt**2) ** (3 / 2)
         return curvature
-    
+
 
 def forward_dx(model, params, x, y, z):
     """Compute the directional derivative of the model output with respect to x."""
@@ -147,28 +142,32 @@ def forward_dyy(model, params, x, y, z):
 
 
 # Load the model
-model = Model(3, [50, 50], 1)
-# model = torch.load('model6.pt', map_location=torch.device('cpu'))
-model.load_state_dict(torch.load("model6.pt"))
+model = torch.load(
+    "C:\\Users\\barry\\OneDrive\\weekly report\\2024_03_18\\Hele_Shaw\\cos_6t\\model_cos_6t.pt",
+    map_location=torch.device("cpu"),
+)
 model.eval()
 print(model)
 
 params = dict(model.named_parameters())
 
 
-
 # Create the mesh
-mesh = CreateMesh()
+mesh = CreateMesh(
+    interface_func=lambda theta: 1 + torch.cos(6 * theta) / 10, radius=1.5
+)
 plot_x, plot_y = mesh.domain_points(50000)
-plot_z = mesh.sign(plot_x, plot_y)
+# plot_z = mesh.sign(plot_x, plot_y)
+plot_z = torch.ones_like(plot_x)
 result = functional_call(model, params, (plot_x, plot_y, plot_z)).detach().numpy()
 
 # Plot the resutls on the interface
-theta = np.linspace(0, 2 * np.pi, 1000).reshape(-1, 1)
-r = 1 / 2 + np.cos(3 * theta) / 10
-if_x = torch.tensor(r * np.cos(theta))
-if_y = torch.tensor(r * np.sin(theta))
+theta = torch.tensor(np.linspace(0, 2 * np.pi, 1000).reshape(-1, 1))
+r = mesh.func(theta)
+if_x = r * torch.cos(theta)
+if_y = r * torch.sin(theta)
 nx, ny = mesh.compute_interface_normal_vec(if_x, if_y)
+k_if = mesh.compute_interface_curvature(if_x, if_y)
 
 z_outer = 1.0 * torch.ones_like(if_x)
 dfdx_outer = forward_dx(model, params, if_x, if_y, z_outer)
@@ -178,13 +177,30 @@ pred = nx * dfdx_outer + ny * dfdy_outer
 
 # Plot the results
 fig = plt.figure()
-ax1 = fig.add_subplot(1, 2, 1, projection="3d")
+ax1 = fig.add_subplot(1, 1, 1, projection="3d")
 sc = ax1.scatter(plot_x, plot_y, result, c=result, cmap="coolwarm", s=1)
 ax1.axes.zaxis.set_ticklabels([])
 fig.colorbar(sc, shrink=0.5, aspect=7, pad=0.02)
+ax1.set_title("Predicted solution z=1")
+plt.savefig("C:\\Users\\barry\\Desktop\\cos_6t.png", dpi=300)
+plt.show()
+
+# ax2 = fig.add_subplot(1, 2, 2)
+# sc2 = ax2.plot(theta, pred.detach().numpy())
+# # ax2.axis("equal")
 # plt.show()
 
-ax2 = fig.add_subplot(1, 2, 2)
-sc2 = ax2.plot(theta, pred.detach().numpy())
-# ax2.axis("equal")
-plt.show()
+# Save the results to csv
+# df = pd.DataFrame(
+#     {
+#         "theta": theta.detach().numpy().flatten(),
+#         "pred": pred.detach().numpy().flatten(),
+#         "k_if": k_if.detach().numpy().flatten(),
+#     }
+# )
+# df.to_csv(
+#     "C:\\Users\\barry\\Desktop\\cos6t_data.csv",
+#     index=False,
+#     header=False,
+#     encoding='utf-8'
+# )
