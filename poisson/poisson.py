@@ -1,520 +1,317 @@
-"""
-    Poisson equation:
-
-    ∇²u = ∂u/∂x² + ∂u/∂y² = f(x, y)
-"""
-
-
-import os
 import torch
+import scipy
+import numpy as np
+import torch.nn as nn
 import matplotlib.pyplot as plt
-import torch.utils.data as Data
-from torch.func import jacrev, vmap, grad
-from utilities import Model, MatrixSolver
-from mesh_generator import CreateMesh
+from torch.func import functional_call, vmap, jacrev, vjp, grad
 
-# Check if the directory exists
-pwd = os.path.abspath(os.path.dirname(__file__))
-if not os.path.exists(pwd + "/data"):
-    print("Creating data directory...")
-    os.makedirs(pwd + "/data")
-else:
-    print("Data directory already exists...")
-
-if not os.path.exists(pwd + "/figure"):
-    print("Creating figure directory...")
-    os.makedirs(pwd + "/figure")
-else:
-    print("Figure directory already exists...")
-
-device_cpu = "cpu"
-device_gpu = "cuda"
-# Set the number of threads used in PyTorch
-torch.set_num_threads(10)
-print(f"Using {torch.get_num_threads()} threads in PyTorch")
-
-# Set the default device to cpu
-torch.set_default_device(device_cpu)
 torch.set_default_dtype(torch.float64)
+device = "cuda" if torch.cuda.is_available() else "cpu"
+# device = "cpu"
+print("device = ", device)
 
 
-RE = 400
-DT = 0.01
+class CreateMesh:
+    def __init__(self) -> None:
+        pass
+
+    def interior_points(self, nx):
+        x = 1.0 * scipy.stats.qmc.LatinHypercube(d=2).random(n=nx)
+        return x
+
+    def boundary_points(self, nx):
+        left_x = np.hstack(
+            (
+                0.0 * np.ones((nx, 1)),
+                1.0 * scipy.stats.qmc.LatinHypercube(d=1).random(n=nx),
+            )
+        )
+        right_x = np.hstack(
+            (
+                np.ones((nx, 1)),
+                1.0 * scipy.stats.qmc.LatinHypercube(d=1).random(n=nx),
+            )
+        )
+        bottom_x = np.hstack(
+            (
+                1.0 * scipy.stats.qmc.LatinHypercube(d=1).random(n=nx),
+                0.0 * np.ones((nx, 1)),
+            )
+        )
+        top_x = np.hstack(
+            (
+                1.0 * scipy.stats.qmc.LatinHypercube(d=1).random(n=nx),
+                np.ones((nx, 1)),
+            )
+        )
+        x = np.vstack((left_x, right_x, bottom_x, top_x))
+        return x
+
+
+class Model(nn.Module):
+    def __init__(self, in_dim, h_dim, out_dim):
+        super().__init__()
+        # input layer
+        self.ln_in = nn.Linear(in_dim, h_dim[0])
+
+        self.hidden = nn.ModuleList()
+        # hidden layers
+        for i in range(len(h_dim) - 1):
+            self.hidden.append(nn.Linear(h_dim[i], h_dim[i + 1]))
+
+        # output layer
+        self.ln_out = nn.Linear(h_dim[-1], out_dim, bias=False)  # bias=True or False?
+
+        # activation function
+        self.act = nn.Sigmoid()
+
+    def forward(self, x, y):
+        input = torch.hstack((x, y))
+        input = self.act(self.ln_in(input))
+        for layer in self.hidden:
+            input = self.act(layer(input))
+        output = self.ln_out(input)
+        return output
+    
+    def forward_dx(self, model, params, x, y):
+        """Compute the directional derivative of the model output with respect to x."""
+        output, vjpfunc = vjp(lambda primal: functional_call(model, params, (primal, y)), x)
+        return vjpfunc(torch.ones_like(output))[0]
+
+    def forward_dy(self, model, params, x, y):
+        """Compute the directional derivative of the model output with respect to y."""
+        output, vjpfunc = vjp(lambda primal: functional_call(model, params, (x, primal)), y)
+        return vjpfunc(torch.ones_like(output))[0]
+
+    def forward_dxx(self, model, params, x, y):
+        """Compute the second directional derivative of the model output with respect to x."""
+        output, vjpfunc = vjp(lambda primal: self.forward_dx(model, params, primal, y), x)
+        return vjpfunc(torch.ones_like(output))[0]
+
+    def forward_dyy(self, model, params, x, y):
+        """Compute the second directional derivative of the model output with respect to y."""
+        output, vjpfunc = vjp(lambda primal: self.forward_dy(model, params, x, primal), y)
+        return vjpfunc(torch.ones_like(output))[0]
 
 
 def exact_sol(x, y):
-    func = torch.sin(torch.pi * x) * torch.sin(torch.pi * y)
-    return func
+    """Exact solution of the Poisson equation."""
+    sol = torch.sin(2.0 * torch.pi * x) * torch.sin(2.0 * torch.pi * y)
+    return sol.reshape(-1, 1)
 
 
-class Poisson:
-    def __init__(self, model, solver, training_p, test_p, *, batch=1):
-        self.model = model
-        self.solver = solver
-        self.batch = batch
+def rhs(x, y):
+    """Right-hand side of the Poisson equation."""
+    f = (
+        -2.0 * 2.0**2
+        * torch.pi**2
+        * torch.sin(2.0 * torch.pi * x)
+        * torch.sin(2.0 * torch.pi * y)
+    )
+    return f.reshape(-1, 1)
 
-        (
-            self.training_domain,
-            self.training_left_boundary,
-            self.training_right_boundary,
-            self.training_top_boundary,
-            self.training_bottom_boundary,
-        ) = training_p
-        (
-            self.test_domain,
-            self.test_left_boundary,
-            self.test_right_boundary,
-            self.test_top_boundary,
-            self.test_bottom_boundary,
-        ) = test_p
 
-        self.training_boundary = torch.vstack(
-            (
-                self.training_left_boundary,
-                self.training_right_boundary,
-                self.training_top_boundary,
-                self.training_bottom_boundary,
-            )
-        )
-        self.test_boundary = torch.vstack(
-            (
-                self.test_left_boundary,
-                self.test_right_boundary,
-                self.test_top_boundary,
-                self.test_bottom_boundary,
-            )
-        )
+def compute_loss_Res(model, params, x, y, Rf_inner):
+    """Compute the residual loss function for the PDE residual term."""
+    # laplace = forward_dxx(model, params, x, y) + forward_dyy(model, params, x, y)
+    laplace = model.forward_dxx(model, params, x, y) + model.forward_dyy(model, params, x, y)
+    loss_Res = laplace - Rf_inner
+    return loss_Res
 
-        # Move the data to model device
-        self.test_domain = self.test_domain.to(self.model.device)
-        self.test_boundary = self.test_boundary.to(self.model.device)
+def compute_loss_Bd(model, params, x, y, Rf_bd):
+    """Compute the boundary loss function for the PDE boundary term."""
+    u_pred = functional_call(model, params, (x, y))
+    loss_b = u_pred - Rf_bd
+    return loss_b
 
-    def main_eq(self, params, points_x, points_y):
-        func = (
-            self.model.forward_2d_dxx(params, points_x, points_y) 
-            + 
-            self.model.forward_2d_dyy(params, points_x, points_y)
-        )
-        return func
-
-    def boundary_eq(self, params, points_x, points_y):
-        func = self.model.forward_2d(params, points_x, points_y)
-        return func
-
-    def jacobian_main_eq(self, params, points_x, points_y):
-        jacobian = vmap(
-            jacrev(self.main_eq, argnums=0), in_dims=(None, 0, 0), out_dims=0
-        )(params, points_x, points_y)
-        row_size = points_x.size(0)
-        col_size = torch.sum(
-            torch.tensor(
-                [torch.add(weight.numel(), bias.numel()) for weight, bias in params]
-            )
-        )
-        jac = torch.zeros(row_size, col_size, device=self.model.device)
-        loc = 0
-        for idx, (jac_w, jac_b) in enumerate(jacobian):
-            jac[:, loc : loc + params[idx][0].numel()] = jac_w.view(
-                points_x.size(0), -1
-            )
-            loc += params[idx][0].numel()
-            jac[:, loc : loc + params[idx][1].numel()] = jac_b.view(
-                points_x.size(0), -1
-            )
-            loc += params[idx][1].numel()
-        return torch.squeeze(jac)
-
-    def jacobian_boundary_eq(self, params, points_x, points_y):
-        jacobian = vmap(
-            jacrev(self.boundary_eq, argnums=0), in_dims=(None, 0, 0), out_dims=0
-        )(params, points_x, points_y)
-        row_size = points_x.size(0)
-        col_size = torch.sum(
-            torch.tensor(
-                [torch.add(weight.numel(), bias.numel()) for weight, bias in params]
-            )
-        )
-        jac = torch.zeros(row_size, col_size, device=self.model.device)
-        loc = 0
-        for idx, (jac_w, jac_b) in enumerate(jacobian):
-            jac[:, loc : loc + params[idx][0].numel()] = jac_w.view(
-                points_x.size(0), -1
-            )
-            loc += params[idx][0].numel()
-            jac[:, loc : loc + params[idx][1].numel()] = jac_b.view(
-                points_x.size(0), -1
-            )
-            loc += params[idx][1].numel()
-        return torch.squeeze(jac)
-
-    def main_eq_residual(self, params, points_x, points_y, target):
-        diff = target - vmap(self.main_eq, in_dims=(None, 0, 0), out_dims=0)(
-            params, points_x, points_y
-        )
-        return diff
-
-    def boundary_eq_residual(self, params, points_x, points_y, target):
-        diff = target - vmap(self.boundary_eq, in_dims=(None, 0, 0), out_dims=0)(
-            params, points_x, points_y
-        )
-        return diff
-
-    def loss_main_eq(self, params, points_x, points_y, target):
-        mse = torch.nn.MSELoss(reduction="mean")(
-            vmap(self.main_eq, in_dims=(None, 0, 0), out_dims=0)(
-                params, points_x, points_y
-            ),
-            target,
-        )
-        return mse
-
-    def loss_boundary_eq(self, params, points_x, points_y, target):
-        mse = torch.nn.MSELoss(reduction="mean")(
-            vmap(self.boundary_eq, in_dims=(None, 0, 0), out_dims=0)(
-                params, points_x, points_y
-            ),
-            target,
-        )
-        return mse
-
-    def learning_process(self):
-        batch_domain = Data.DataLoader(
-            dataset=Data.TensorDataset(
-                self.training_domain[:, 0], self.training_domain[:, 1]
-            ),
-            batch_size=int(self.training_domain[:, 0].size(0) / self.batch),
-            shuffle=True,
-            drop_last=True,
-        )
-        batch_boundary = Data.DataLoader(
-            dataset=Data.TensorDataset(
-                self.training_boundary[:, 0], self.training_boundary[:, 1]
-            ),
-            batch_size=int(self.training_boundary[:, 0].size(0) / self.batch),
-            shuffle=True,
-            drop_last=True,
-        )
-
-        params_u = self.model.initialize_mlp()
-
-        # Initialize the parameters
-        Niter = 10**4
-        tol = 1e-10
-        total_epoch = 0
-        # Initialize the loss function
-        loss_train = torch.zeros(self.batch * Niter, device=self.model.device)
-        loss_test = torch.zeros(self.batch * Niter, device=self.model.device)
-
-        for batch_step, (data_domain, data_boundary) in enumerate(
-            zip(batch_domain, batch_boundary)
-        ):
-            print(f"Batch step = {batch_step}")
-
-            # Move the data to GPU
-            for idx in torch.arange(2):
-                data_domain[idx] = data_domain[idx].to(self.model.device)
-                data_boundary[idx] = data_boundary[idx].to(self.model.device)
-
-            # Initialize the parameters
-            mu = torch.tensor(10**3, device=self.model.device)
-            alpha = torch.tensor(1.0, device=self.model.device)
-            beta = torch.tensor(1.0, device=self.model.device)
-
-            rhs_u = (
-                vmap(grad(grad(exact_sol, argnums=0), argnums=0), 
-                     in_dims=(0, 0), out_dims=0)(
-                         data_domain[0], data_domain[1]
-                     )
-                +
-                vmap(grad(grad(exact_sol, argnums=1), argnums=1),
-                     in_dims=(0, 0), out_dims=0)(
-                         data_domain[0], data_domain[1]
-                     )
-            )
-            rhs_u_test = (
-                vmap(grad(grad(exact_sol, argnums=0), argnums=0),
-                     in_dims=(0, 0), out_dims=0)(
-                         self.test_domain[:, 0], self.test_domain[:, 1]
-                    )
-                +
-                vmap(grad(grad(exact_sol, argnums=1), argnums=1),
-                     in_dims=(0, 0), out_dims=0)(
-                        self.test_domain[:, 0], self.test_domain[:, 1]
-                    )
-            )
-
-            for epoch in range(Niter):
-                # Compute each jacobian matrix
-                jac_main_eq = self.jacobian_main_eq(
-                    params_u, data_domain[0], data_domain[1]
-                )
-                jac_boundary_eq = self.jacobian_boundary_eq(
-                    params_u, data_boundary[0], data_boundary[1]
-                )
-                # Combine the jacobian matrix
-                jacobian = torch.vstack(
-                    (
-                        torch.sqrt(alpha / torch.tensor(data_domain[0].size(0), 
-                                                        device=self.model.device))
-                        * jac_main_eq,
-                        torch.sqrt(beta / torch.tensor(data_boundary[0].size(0), 
-                                                       device=self.model.device))
-                        * jac_boundary_eq
-                    )
-                )
-                # print(f'jacobian size = {jacobian.size()}')
-
-                # Compute each residual
-                residual_main_eq = self.main_eq_residual(
-                    params_u, 
-                    data_domain[0], 
-                    data_domain[1], 
-                    rhs_u
-                )
-                residual_boundary_eq = self.boundary_eq_residual(
-                    params_u,
-                    data_boundary[0],
-                    data_boundary[1],
-                    torch.zeros(data_boundary[0].size(0), device=self.model.device)
-                )
-                # Combine the residual
-                residual = torch.hstack(
-                    (
-                        residual_main_eq
-                        * torch.sqrt(alpha / torch.tensor(data_domain[0].size(0))),
-                        residual_boundary_eq
-                        * torch.sqrt(beta / torch.tensor(data_boundary[0].size(0))),
-                    )
-                )
-                # print(f'residual size = {residual.size()}')
-
-                # Compute the update value of weight and bias
-                # h = self.solver.cholesky(jacobian, diff, mu)
-                h = self.solver.qr_decomposition(jacobian, residual.view(-1, 1), mu)
-                # print(f'h size = {h.size()}')
-                params_u_flatten = self.model.flatten_params(params_u)
-                params_u_flatten = torch.add(params_u_flatten, h)
-                params_u = self.model.unflatten_params(params_u_flatten)
-
-                # Compute the loss function
-                loss_train[epoch + total_epoch] = (
-                    alpha * self.loss_main_eq(
-                        params_u, 
-                        data_domain[0], 
-                        data_domain[1], 
-                        rhs_u
-                    )
-                    + 
-                    beta * self.loss_boundary_eq(
-                        params_u,
-                        data_boundary[0],
-                        data_boundary[1],
-                        torch.zeros(data_boundary[0].size(0), 
-                                    device=self.model.device)
-                    )
-                )
-
-                loss_test[epoch + total_epoch] = (
-                    self.loss_main_eq(
-                        params_u,
-                        self.test_domain[:, 0],
-                        self.test_domain[:, 1],
-                        rhs_u_test
-                    )
-                    + self.loss_boundary_eq(
-                        params_u,
-                        self.test_boundary[:, 0],
-                        self.test_boundary[:, 1],
-                        torch.zeros(self.test_boundary[:, 0].size(0), 
-                                    device=self.model.device)
-                    )
-                )
-
-                # Update alpha and beta
-                if epoch % 1000 == 0:
-                    residual_params_alpha = grad(self.loss_main_eq, argnums=0)(
-                        params_u, 
-                        data_domain[0], 
-                        data_domain[1], 
-                        rhs_u
-                    )
-                    loss_domain_deriv_params = torch.linalg.vector_norm(
-                        self.model.flatten_params(residual_params_alpha)
-                    )
-                    residual_params_beta = grad(self.loss_boundary_eq, argnums=0)(
-                        params_u,
-                        data_boundary[0],
-                        data_boundary[1],
-                        torch.zeros(data_boundary[0].size(0), device=self.model.device)
-                    )
-                    loss_boundary_deriv_params = torch.linalg.vector_norm(
-                        self.model.flatten_params(residual_params_beta)
-                    )
-
-                    alpha_bar = (
-                        loss_domain_deriv_params + loss_boundary_deriv_params
-                    ) / loss_domain_deriv_params
-                    beta_bar = (
-                        loss_domain_deriv_params + loss_boundary_deriv_params
-                    ) / loss_boundary_deriv_params
-
-                    alpha = (1 - 0.1) * alpha + 0.1 * alpha_bar
-                    beta = (1 - 0.1) * beta + 0.1 * beta_bar
-                    print(f"alpha = {alpha:.3f}, beta = {beta:.3f}")
-
-                print(
-                    f"epoch = {epoch}, "
-                    f"loss_train = {loss_train[epoch + total_epoch]:.2e}, "
-                    f"mu = {mu:.1e}"
-                )
-
-                # Stop this batch if the loss function is small enough
-                if loss_train[epoch + total_epoch] < tol:
-                    total_epoch = total_epoch + epoch + 1
-                    print("Successful training ...")
-                    break
-                elif epoch % 5 == 0 and epoch > 0:
-                    if (
-                        loss_train[epoch + total_epoch]
-                        > loss_train[epoch + total_epoch - 1]
-                    ):
-                        mu = torch.min(torch.tensor((2 * mu, 1e8)))
-
-                    if (
-                        loss_train[epoch + total_epoch]
-                        < loss_train[epoch + total_epoch - 1]
-                    ):
-                        mu = torch.max(torch.tensor((mu / 3, 1e-12)))
-                elif (
-                    loss_train[epoch + total_epoch]
-                    / loss_train[epoch + total_epoch - 1]
-                    > 100
-                ) and epoch > 0:
-                    mu = torch.min(torch.tensor((2 * mu, 1e8)))
-
-                # if (
-                #     loss_train[epoch + total_epoch] > 1e13
-                #     or loss_train[epoch + total_epoch]
-                #     == loss_train[epoch + total_epoch - 1]
-                # ):
-                #     print("Failed to learn ...")
-                #     return params_u_star
-
-            # plot loss figure
-            fig, ax = plt.subplots()
-            ax.semilogy(
-                torch.arange(total_epoch),
-                loss_train[0:total_epoch].to(device_cpu),
-                label="train",
-                linestyle="solid",
-            )
-            ax.semilogy(
-                torch.arange(total_epoch),
-                loss_test[0:total_epoch].to(device_cpu),
-                label="test",
-                linestyle="dashed",
-            )
-            plt.xlabel("Iteration")
-            plt.ylabel("value of loss function")
-            plt.legend(loc="upper right")
-            plt.title("Loss")
-            # plt.savefig(pwd + f"/figure/loss_{int(step*DT)}.png", dpi=300)
-            plt.show()
-
-            return params_u
+def qr_decomposition(J_mat, diff, mu):
+    """Solve the linear system using QR decomposition"""
+    A = torch.vstack((J_mat, mu**0.5 * torch.eye(J_mat.size(1), device=device)))
+    b = torch.vstack((-diff, torch.zeros(J_mat.size(1), 1, device=device)))
+    Q, R = torch.linalg.qr(A)
+    x = torch.linalg.solve_triangular(R, Q.t() @ b, upper=True)
+    return x.flatten()
 
 
 def main():
-    neuron_net = [2, 40, 1]
-    model_device = device_cpu
+    mesh = CreateMesh()
+    # interior points
+    x_inner = mesh.interior_points(1000)
+    x_inner_vaild = mesh.interior_points(10000)
+    # boundary points
+    x_bd = mesh.boundary_points(100)
+    x_bd_vaild = mesh.boundary_points(1000)
+    print(f"inner_x = {x_inner.shape}")
+    print(f"boundary_x = {x_bd.shape}")
 
-    model = Model(
-        net_layers=neuron_net, 
-        activation="sigmoid", 
-        device=model_device
-    )
-    solver = MatrixSolver(device=model_device)
+    X_inner_torch = torch.from_numpy(x_inner).to(device)
+    X_bd_torch = torch.from_numpy(x_bd).to(device)
+    X_inner_vaild_torch = torch.from_numpy(x_inner_vaild).to(device)
+    X_bd_vaild_torch = torch.from_numpy(x_bd_vaild).to(device)
 
-    mesh_gen = CreateMesh()
-    (
-        training_domain,
-        training_left_bdy,
-        training_right_bdy,
-        training_top_bdy,
-        training_bottom_bdy,
-    ) = mesh_gen.create_mesh(50, 50, 50, 50, 1000)
-    (
-        test_domain,
-        test_left_bdy,
-        test_right_bdy,
-        test_top_bdy,
-        test_bottom_bdy,
-    ) = mesh_gen.create_mesh(1000, 1000, 1000, 1000, 10000)
+    X_inner, Y_inner = X_inner_torch[:, 0].reshape(-1, 1), X_inner_torch[:, 1].reshape(-1, 1)
+    X_bd, Y_bd = X_bd_torch[:, 0].reshape(-1, 1), X_bd_torch[:, 1].reshape(-1, 1)
+    X_inner_vaild, Y_inner_vaild = X_inner_vaild_torch[:, 0].reshape(-1, 1), X_inner_vaild_torch[:, 1].reshape(-1, 1)
+    X_bd_vaild, Y_bd_vaild = X_bd_vaild_torch[:, 0].reshape(-1, 1), X_bd_vaild_torch[:, 1].reshape(-1, 1)
 
-    # fig, ax = plt.subplots()
-    # ax.scatter(training_domain[:, 0].cpu(), training_domain[:, 1].cpu(), c="r")
-    # ax.scatter(
-    #     torch.vstack(
-    #         (
-    #             training_left_bdy[:, 0],
-    #             training_top_bdy[:, 0],
-    #             training_right_bdy[:, 0],
-    #             training_bottom_bdy[:, 0],
-    #         )
-    #     ).cpu(),
-    #     torch.vstack(
-    #         (
-    #             training_left_bdy[:, 1],
-    #             training_top_bdy[:, 1],
-    #             training_right_bdy[:, 1],
-    #             training_bottom_bdy[:, 1],
-    #         )
-    #     ).cpu(),
-    #     c="b",
-    # )
-    # ax.axis("square")
-    # plt.show()
+    model = Model(2, [20, 20], 1).to(device)  # hidden layers = [...](list)
+    print(model)
 
-    pred = Poisson(
-        model,
-        solver,
-        (
-            training_domain,
-            training_left_bdy,
-            training_right_bdy,
-            training_top_bdy,
-            training_bottom_bdy,
-        ),
-        (
-            test_domain, 
-            test_left_bdy, 
-            test_right_bdy, 
-            test_top_bdy, 
-            test_bottom_bdy
-        ),
-        batch=1,
-    )
+    # get the training parameters and total number of parameters
+    u_params = dict(model.named_parameters())
+    # for key, value in u_params.items():
+    #     print(f"{key} = {value}")
 
-    params_u = pred.learning_process()
+    # 10 times the initial parameters
+    u_params_flatten = nn.utils.parameters_to_vector(u_params.values()) * 10.0
+    nn.utils.vector_to_parameters(u_params_flatten, u_params.values())
+    print(f"Number of parameters = {u_params_flatten.numel()}")
 
-    # convert the data to cpu
-    if model.device == device_gpu:
-        print("Converting the data to cpu ...")
-        params_u_cpu = model.unflatten_params(model.flatten_params(params_u).cpu())
-    else:
-        params_u_cpu = params_u
+    Rf_inner = rhs(X_inner, Y_inner)
+    Rf_bd = exact_sol(X_bd, Y_bd)
+    Rf_inner_vaild = rhs(X_inner_vaild, Y_inner_vaild)
+    Rf_bd_vaild = exact_sol(X_bd_vaild, Y_bd_vaild)
 
-    # plot the solution
-    solution = vmap(model.forward_2d, in_dims=(None, 0, 0), out_dims=0)(
-        params_u_cpu, test_domain[:, 0], test_domain[:, 1]
-    )
-    error = torch.abs(exact_sol(test_domain[:, 0], test_domain[:, 1]) - solution)
+    # Start training
+    Niter = 1000
+    tol = 1.0e-10
+    mu = 1.0e5
+    savedloss = []
+    saveloss_vaild = []
+    alpha = 1.0
+    beta = 1.0
+
+    for step in range(Niter):
+        # Compute Jacobian matrix
+        jac_res_dict = vmap(
+            jacrev(compute_loss_Res, argnums=1),
+            in_dims=(None, None, 0, 0, 0),
+            out_dims=0,
+        )(model, u_params, X_inner, Y_inner, Rf_inner)
+
+        jac_b_dict = vmap(
+            jacrev(compute_loss_Bd, argnums=1),
+            in_dims=(None, None, 0, 0, 0),
+            out_dims=0,
+        )(model, u_params, X_bd, Y_bd, Rf_bd)
+
+        # Stack the Jacobian matrices
+        Jac_res = torch.hstack([v.view(X_inner.size(0), -1) for v in jac_res_dict.values()])
+        Jac_b = torch.hstack([v.view(X_bd.size(0), -1) for v in jac_b_dict.values()])
+
+        # print(f"jac_res = {Jac_res.size()}")
+        # print(f"jac_b = {Jac_b.size()}")
+        Jac_res = Jac_res * torch.sqrt(alpha / torch.tensor(X_inner.size(0)))
+        Jac_b = Jac_b * torch.sqrt(beta / torch.tensor(X_bd.size(0)))
+
+        # Put into loss functional to get L_vec
+        L_vec_res = compute_loss_Res(model, u_params, X_inner, Y_inner, Rf_inner)
+        L_vec_b = compute_loss_Bd(model, u_params, X_bd, Y_bd, Rf_bd)
+        L_vec_res_vaild = compute_loss_Res(model, u_params, X_inner_vaild, Y_inner_vaild, Rf_inner_vaild)
+        L_vec_b_vaild = compute_loss_Bd(model, u_params, X_bd_vaild, Y_bd_vaild, Rf_bd_vaild)
+        # print(f"loss_Res = {L_vec_res.size()}")
+        # print(f"loss_Bd = {L_vec_b.size()}")
+        L_vec_res = L_vec_res * torch.sqrt(alpha / torch.tensor(X_inner.size(0)))
+        L_vec_b = L_vec_b * torch.sqrt(beta / torch.tensor(X_bd.size(0)))
+        L_vec_res_vaild = L_vec_res_vaild / torch.sqrt(torch.tensor(X_inner_vaild.size(0)))
+        L_vec_b_vaild = L_vec_b_vaild / torch.sqrt(torch.tensor(X_bd_vaild.size(0)))
+
+        # Cat Jac_res and Jac_b into J_mat
+        J_mat = torch.vstack((Jac_res, Jac_b))
+        L_vec = torch.vstack((L_vec_res, L_vec_b))
+        # print(f"J_mat = {J_mat.size()}")
+        # print(f"L_vec = {L_vec.size()}")
+
+        # Solve the linear system
+        p = qr_decomposition(J_mat, L_vec, mu)
+        # Update the parameters
+        u_params_vec = nn.utils.parameters_to_vector(u_params.values())
+        u_params_vec = u_params_vec + p
+        nn.utils.vector_to_parameters(u_params_vec, u_params.values())
+
+        # Compute the loss function
+        loss = (
+            torch.sum(L_vec_res**2) + torch.sum(L_vec_b**2)
+        )
+        loss_vaild = (
+            torch.sum(L_vec_res_vaild**2) + torch.sum(L_vec_b_vaild**2)
+        )
+        print(f"step = {step}, loss = {loss.item():.2e}, mu = {mu:.1e}")
+        savedloss.append(loss.item())
+        saveloss_vaild.append(loss_vaild.item())
+
+        if step % 50 == 0:
+            # Compute the aplha_bar and beta_bar
+            dloss_res_dparams = grad(
+                lambda primal: torch.sum(
+                    compute_loss_Res(model, primal, X_inner, Y_inner, Rf_inner)**2),
+                argnums=0)(u_params)
+            dloss_res_dparams_flatten = nn.utils.parameters_to_vector(dloss_res_dparams.values()) / torch.tensor(X_inner.size(0))
+            dloss_res_dparams_norm = torch.linalg.norm(dloss_res_dparams_flatten)
+
+            dloss_bd_dparams = grad(
+                lambda primal: torch.sum(
+                    compute_loss_Bd(model, primal, X_bd, Y_bd, Rf_bd)**2),
+                argnums=0)(u_params)
+            dloss_bd_dparams_flatten = nn.utils.parameters_to_vector(dloss_bd_dparams.values()) / torch.tensor(X_bd.size(0))
+            d_loss_bdparams_norm = torch.linalg.norm(dloss_bd_dparams_flatten)
+
+            alpha_bar = (
+                dloss_res_dparams_norm + d_loss_bdparams_norm
+            ) / dloss_res_dparams_norm
+            beta_bar = (
+                dloss_res_dparams_norm + d_loss_bdparams_norm
+            ) / d_loss_bdparams_norm
+
+            # Update the alpha and beta
+            alpha = (1-0.1) * alpha + 0.1 * alpha_bar
+            beta = (1-0.1) * beta + 0.1 * beta_bar
+            print(f"alpha = {alpha:.2f}, beta = {beta:.2f}")
+
+        # Check the convergence
+        if (step == Niter - 1) or (loss < tol):
+            break
+
+        # Update the parameter mu
+        if step % 3 == 0:
+            if savedloss[step] > savedloss[step - 1]:
+                mu = min(2 * mu, 1e8)
+            else:
+                mu = max(mu / 3, 1e-10)
+
+    
+    # Plot the loss function
     fig, ax = plt.subplots()
-    sca = ax.scatter(test_domain[:, 0], test_domain[:, 1], c=error)
-    plt.colorbar(sca)
-    ax.axis("square")
+    ax.semilogy(savedloss, "k-", label="training loss")
+    ax.semilogy(saveloss_vaild, "r--", label="test loss")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Loss")
+    ax.legend()
     plt.show()
 
+    # Update the model parameters
+    model.load_state_dict(u_params)
+
+    # Compute the exact solution
+    x = torch.linspace(0, 1, 100, device=device)
+    y = torch.linspace(0, 1, 100, device=device)
+    X, Y = torch.meshgrid(x, y, indexing="ij")
+    X, Y = X.reshape(-1, 1), Y.reshape(-1, 1)
+    U_exact = exact_sol(X, Y).cpu()
+    U_pred = functional_call(model, u_params, (X, Y)).cpu().detach().numpy()
+    Error = torch.abs(U_exact - U_pred)
+
+    # Plot the exact solution
+    fig, axs = plt.subplots(1, 2)
+    sca1 = axs[0].scatter(X.cpu(), Y.cpu(), c=U_pred)
+    sca2 = axs[1].scatter(X.cpu(), Y.cpu(), c=Error)
+    axs[0].set_title("Predicted solution")
+    axs[1].set_title("Error")
+    axs[0].axis("square")
+    axs[1].axis("square")
+    plt.colorbar(sca1)
+    plt.colorbar(sca2)
+    plt.show()
 
 if __name__ == "__main__":
     main()
