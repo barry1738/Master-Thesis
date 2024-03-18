@@ -474,27 +474,31 @@ def main():
             dloss_if_2_dp_norm = torch.linalg.norm(dloss_if_2_dp_flatten)
 
             alpha_res_bar = (
-                dloss_bd_dp_norm +
-                dloss_if_1_dp_norm +
-                dloss_if_2_dp_norm
+                dloss_res_dp_norm
+                + dloss_bd_dp_norm
+                + dloss_if_1_dp_norm
+                + dloss_if_2_dp_norm
             ) / dloss_res_dp_norm
 
             alpha_bd_bar = (
-                dloss_bd_dp_norm +
-                dloss_if_1_dp_norm +
-                dloss_if_2_dp_norm
+                dloss_res_dp_norm
+                + dloss_bd_dp_norm
+                + dloss_if_1_dp_norm
+                + dloss_if_2_dp_norm
             ) / dloss_bd_dp_norm
 
             alpha_if_1_bar = (
-                dloss_bd_dp_norm +
-                dloss_if_1_dp_norm +
-                dloss_if_2_dp_norm
+                dloss_res_dp_norm
+                + dloss_bd_dp_norm
+                + dloss_if_1_dp_norm
+                + dloss_if_2_dp_norm
             ) / dloss_if_1_dp_norm
 
             alpha_if_2_bar = (
-                dloss_bd_dp_norm +
-                dloss_if_1_dp_norm +
-                dloss_if_2_dp_norm
+                dloss_res_dp_norm
+                + dloss_bd_dp_norm
+                + dloss_if_1_dp_norm
+                + dloss_if_2_dp_norm
             ) / dloss_if_2_dp_norm
 
             # Update the parameters alpha_bd, alpha_if_1 and alpha_if_2
