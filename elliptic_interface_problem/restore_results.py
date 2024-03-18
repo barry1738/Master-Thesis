@@ -141,9 +141,26 @@ def forward_dyy(model, params, x, y, z):
     return vjpfunc(torch.ones_like(output))[0]
 
 
+def predict(model, params, x, y, z):
+    """Compute the model output."""
+    return functional_call(model, params, (x, y, z)) / torch.sqrt(x**2 + y**2)
+
+
+def predict_dx(model, params, x, y, z):
+    """Compute the directional derivative of the model output with respect to x."""
+    output, vjpfunc = vjp(lambda primal: predict(model, params, primal, y, z), x)
+    return vjpfunc(torch.ones_like(output))[0]
+
+
+def predict_dy(model, params, x, y, z):
+    """Compute the directional derivative of the model output with respect to y."""
+    output, vjpfunc = vjp(lambda primal: predict(model, params, x, primal, z), y)
+    return vjpfunc(torch.ones_like(output))[0]
+
+
 # Load the model
 model = torch.load(
-    "C:\\Users\\barry\\OneDrive\\weekly report\\2024_03_18\\Hele_Shaw\\cos_2t\\model_cos_2t.pt",
+    "C:\\Users\\barry\\Desktop\\2024_03_18\\cos_2t\\model_cos_6t.pt",
     map_location=torch.device("cpu"),
 )
 model.eval()
@@ -157,9 +174,10 @@ mesh = CreateMesh(
     interface_func=lambda theta: 1 + torch.cos(2 * theta) / 10, radius=1.5
 )
 plot_x, plot_y = mesh.domain_points(50000)
-# plot_z = mesh.sign(plot_x, plot_y)
-plot_z = torch.ones_like(plot_x)
-result = functional_call(model, params, (plot_x, plot_y, plot_z)).detach().numpy()
+plot_z = mesh.sign(plot_x, plot_y)
+# plot_z = torch.ones_like(plot_x)
+# result = functional_call(model, params, (plot_x, plot_y, plot_z)).detach().numpy()
+result = predict(model, params, plot_x, plot_y, plot_z).detach().numpy()
 
 # Plot the resutls on the interface
 theta = torch.tensor(np.linspace(0, 2 * np.pi, 1000).reshape(-1, 1))
@@ -170,25 +188,27 @@ nx, ny = mesh.compute_interface_normal_vec(if_x, if_y)
 k_if = mesh.compute_interface_curvature(if_x, if_y)
 
 z_outer = 1.0 * torch.ones_like(if_x)
-dfdx_outer = forward_dx(model, params, if_x, if_y, z_outer)
-dfdy_outer = forward_dy(model, params, if_x, if_y, z_outer)
+# dfdx_outer = forward_dx(model, params, if_x, if_y, z_outer)
+# dfdy_outer = forward_dy(model, params, if_x, if_y, z_outer)
+dfdx_outer = predict_dx(model, params, if_x, if_y, z_outer)
+dfdy_outer = predict_dy(model, params, if_x, if_y, z_outer)
 pred = nx * dfdx_outer + ny * dfdy_outer
 
 
 # Plot the results
 fig = plt.figure()
-ax1 = fig.add_subplot(1, 1, 1, projection="3d")
+ax1 = fig.add_subplot(1, 2, 1, projection="3d")
 sc = ax1.scatter(plot_x, plot_y, result, c=result, cmap="coolwarm", s=1)
 ax1.axes.zaxis.set_ticklabels([])
 fig.colorbar(sc, shrink=0.5, aspect=7, pad=0.02)
 ax1.set_title(r"$1+0.1\cos(2\theta)$, z=1")
-plt.savefig("C:\\Users\\barry\\Desktop\\cos_2t.png", dpi=300)
-plt.show()
-
-# ax2 = fig.add_subplot(1, 2, 2)
-# sc2 = ax2.plot(theta, pred.detach().numpy())
-# # ax2.axis("equal")
+# plt.savefig("C:\\Users\\barry\\Desktop\\cos_2t.png", dpi=300)
 # plt.show()
+
+ax2 = fig.add_subplot(1, 2, 2)
+sc2 = ax2.plot(theta, pred.detach().numpy())
+# ax2.axis("equal")
+plt.show()
 
 # Save the results to csv
 # df = pd.DataFrame(

@@ -1,3 +1,5 @@
+""" Radius-Theta version of the Hele-Shaw problem """
+
 import os
 import time
 import torch
@@ -30,44 +32,38 @@ class CreateMesh:
         self.func = interface_func
         self.r = radius
 
+    def domain_points(self, n):
+        """Uniform random distribution within a circle"""
+        radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
+        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
+        return radius, theta
+
     # def domain_points(self, n, *, xc=0, yc=0):
     #     """Uniform random distribution within a circle"""
-    #     radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
-    #     theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
+    #     nx = n // 5
+    #     theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=2*nx))
+    #     theta_if = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=3*nx))
+    #     radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=2*nx)))
+    #     radius_if = self.func(theta_if)
+    #     x_eps = torch.Tensor(3*nx, 1).uniform_(-0.2, 0.2)
+    #     y_eps = torch.Tensor(3*nx, 1).uniform_(-0.2, 0.2)
     #     x = xc + radius * torch.cos(theta)
     #     y = yc + radius * torch.sin(theta)
-    #     return x, y
-
-    def domain_points(self, n, *, xc=0, yc=0):
-        """Uniform random distribution within a circle"""
-        nx = n // 5
-        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=1*nx))
-        theta_if = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=4*nx))
-        radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=1*nx)))
-        radius_if = self.func(theta_if)
-        x_eps = torch.Tensor(4*nx, 1).uniform_(-0.2, 0.2)
-        y_eps = torch.Tensor(4*nx, 1).uniform_(-0.2, 0.2)
-        x = xc + radius * torch.cos(theta)
-        y = yc + radius * torch.sin(theta)
-        x_if = xc + (radius_if + x_eps) * torch.cos(theta_if)
-        y_if = yc + (radius_if + y_eps) * torch.sin(theta_if)
-        return torch.vstack((x, x_if)), torch.vstack((y, y_if))
-        # return x_if, y_if
+    #     x_if = xc + (radius_if + x_eps) * torch.cos(theta_if)
+    #     y_if = yc + (radius_if + y_eps) * torch.sin(theta_if)
+    #     return torch.vstack((x, x_if)), torch.vstack((y, y_if))
     
     def boundary_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution on a circle"""
+        radius = torch.tensor(self.r * torch.ones(n, 1))
         theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
-        x = xc + self.r * torch.cos(theta)
-        y = yc + self.r * torch.sin(theta)
-        return x, y
+        return radius, theta
 
     def interface_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution on a polar curve"""
         theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
         radius = self.func(theta)
-        x = xc + radius * torch.cos(theta)
-        y = yc + radius * torch.sin(theta)
-        return x, y
+        return radius, theta
 
     def sign(self, x, y):
         """Check the points inside the polar curve, return z = -1 if inside, z = 1 if outside"""
@@ -226,14 +222,14 @@ def cholesky(J, diff, mu):
 
 def main():
     # Define the model
-    model = Model(3, [20, 20, 20, 20], 1).to(device)
+    model = Model(3, [30, 30, 30, 30], 1).to(device)
     # print(model)
 
     # Create the training data
     mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(5 * t), radius=1.5)
-    x_inner, y_inner = mesh.domain_points(3000)
+    x_inner, y_inner = mesh.domain_points(1000)
     x_bd, y_bd = mesh.boundary_points(100)
-    x_if, y_if = mesh.interface_points(200)
+    x_if, y_if = mesh.interface_points(100)
     z_inner = mesh.sign(x_inner, y_inner)
     z_bd = torch.ones_like(x_bd)
 
