@@ -143,7 +143,7 @@ def forward_dyy(model, params, x, y, z):
 
 # Load the model
 model = torch.load(
-    "C:\\Users\\barry\\OneDrive\\weekly report\\2024_03_18\\Hele_Shaw\\cos_6t\\model_cos_6t.pt",
+    "C:\\Users\\barry\\OneDrive\\weekly report\\2024_03_18\\Hele_Shaw\\cos_2t\\model_cos_2t.pt",
     map_location=torch.device("cpu"),
 )
 model.eval()
@@ -154,7 +154,7 @@ params = dict(model.named_parameters())
 
 # Create the mesh
 mesh = CreateMesh(
-    interface_func=lambda theta: 1 + torch.cos(6 * theta) / 10, radius=1.5
+    interface_func=lambda theta: 1 + torch.cos(2 * theta) / 10, radius=1.5
 )
 plot_x, plot_y = mesh.domain_points(50000)
 # plot_z = mesh.sign(plot_x, plot_y)
@@ -181,8 +181,8 @@ ax1 = fig.add_subplot(1, 1, 1, projection="3d")
 sc = ax1.scatter(plot_x, plot_y, result, c=result, cmap="coolwarm", s=1)
 ax1.axes.zaxis.set_ticklabels([])
 fig.colorbar(sc, shrink=0.5, aspect=7, pad=0.02)
-ax1.set_title("Predicted solution z=1")
-plt.savefig("C:\\Users\\barry\\Desktop\\cos_6t.png", dpi=300)
+ax1.set_title(r"$1+0.1\cos(2\theta)$, z=1")
+plt.savefig("C:\\Users\\barry\\Desktop\\cos_2t.png", dpi=300)
 plt.show()
 
 # ax2 = fig.add_subplot(1, 2, 2)
