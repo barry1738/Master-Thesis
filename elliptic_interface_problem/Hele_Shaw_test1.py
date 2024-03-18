@@ -11,6 +11,8 @@ from torch.func import functional_call, vmap, vjp, jacrev, grad
 torch.cuda.empty_cache()
 torch.set_default_dtype(torch.float64)
 device = "cuda" if torch.cuda.is_available() else "cpu"
+# device = 'cpu'
+# torch.set_num_threads(10)
 print("device = ", device)
 
 
@@ -135,23 +137,12 @@ class Model(nn.Module):
             input = self.act(layer(input))
         output = self.ln_out(input)
         return output
-    
-
-def forward_dx(model, params, x, y, z):
-    """Compute the directional derivative of the model output with respect to x."""
-    output, vjpfunc = vjp(lambda primal: functional_call(model, params, (primal, y, z)), x)
-    return vjpfunc(torch.ones_like(output))[0]
-
-
-def forward_dy(model, params, x, y, z):
-    """Compute the directional derivative of the model output with respect to y."""
-    output, vjpfunc = vjp(lambda primal: functional_call(model, params, (x, primal, z)), y)
-    return vjpfunc(torch.ones_like(output))[0]
 
 
 def predict(model, params, x, y, z):
     """Compute the model output."""
-    return functional_call(model, params, (x, y, z)) / (x**2 + y**2)
+    r2 = torch.where(z > 0, x**2 + y**2, 1.0)
+    return functional_call(model, params, (x, y, z)) / r2
 
 
 def predict_dx(model, params, x, y, z):
@@ -184,19 +175,13 @@ def compute_loss_res(model, params, x, y, z, Rf_inner):
     return loss
 
 
-# def compute_loss_bd(model, params, x, y, z, nx, ny, Rf_bd):
-#     dfdx = forward_dx(model, params, x, y, z)
-#     dfdy = forward_dy(model, params, x, y, z)
-#     normal_pred = dfdx * nx + dfdy * ny
-#     loss = normal_pred - Rf_bd
-#     # pred = functional_call(model, params, (x, y, z))
-#     # loss = pred - Rf_bd
-#     return loss
-
-
-def compute_loss_center(model, params, x, y, z, Rf_center):
-    pred = functional_call(model, params, (x, y, z))
-    loss = pred - Rf_center
+def compute_loss_bd(model, params, x, y, z, nx, ny, Rf_bd):
+    dfdx = predict_dx(model, params, x, y, z)
+    dfdy = predict_dy(model, params, x, y, z)
+    normal_pred = dfdx * nx + dfdy * ny
+    loss = normal_pred - Rf_bd
+    # pred = functional_call(model, params, (x, y, z))
+    # loss = pred - Rf_bd
     return loss
 
 
@@ -245,28 +230,32 @@ def cholesky(J, diff, mu):
 
 def main():
     # Define the model
-    model = Model(3, [50, 50], 1).to(device)
+    model = Model(3, [40, 40], 1).to(device)
     # print(model)
 
     # Create the training data
-    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(3 * t), radius=1.5)
+    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(3 * t), radius=2.0)
     x_inner, y_inner = mesh.domain_points(1000)
-    x_if, y_if = mesh.interface_points(500)
-    x_ct, y_ct = torch.zeros(1, 1), torch.zeros(1, 1)
+    x_bd, y_bd = mesh.boundary_points(100)
+    x_if, y_if = mesh.interface_points(200)
     z_inner = mesh.sign(x_inner, y_inner)
-    z_ct = -torch.ones_like(x_ct)
+    z_bd = torch.ones_like(x_bd)
 
     # Create the validation data
     x_inner_v, y_inner_v = mesh.domain_points(10000)
+    x_bd_v, y_bd_v = mesh.boundary_points(1000)
     x_if_v, y_if_v = mesh.interface_points(1000)
     z_inner_v = mesh.sign(x_inner_v, y_inner_v)
+    z_bd_v = torch.ones_like(x_bd_v)
 
     print(f"Number of x_inner = {x_inner.shape}")
-    print(f"Number of x_ct = {x_ct.shape}")
+    print(f"Number of x_bd = {x_bd.shape}")
     print(f"Number of x_if = {x_if.shape}")
 
     # Compute the boundary normal vector
+    nx_bd, ny_bd = mesh.compute_boundary_normal_vec(x_bd, y_bd)
     nx_if, ny_if = mesh.compute_interface_normal_vec(x_if, y_if)
+    nx_bd_v, ny_bd_v = mesh.compute_boundary_normal_vec(x_bd_v, y_bd_v)
     nx_if_v, ny_if_v = mesh.compute_interface_normal_vec(x_if_v, y_if_v)
 
     # Compute the interface curvature
@@ -279,6 +268,7 @@ def main():
     # Plot the training data
     fig, ax = plt.subplots(1, 2, figsize=(10, 5))
     ax[0].scatter(x_inner, y_inner, c=z_inner, s=1)
+    ax[0].scatter(x_bd, y_bd, c=z_bd, s=1)
     sca = ax[0].scatter(x_if, y_if, c=k_if, s=1)
     # ax.quiver(x_if, y_if, nx_if, ny_if, angles="xy", scale_units="xy", scale=5)
     ax[0].axis('square')
@@ -291,15 +281,17 @@ def main():
 
     # Move the data to the device
     x_inner, y_inner, z_inner = x_inner.to(device), y_inner.to(device), z_inner.to(device)
-    # x_bd, y_bd, z_bd = x_bd.to(device), y_bd.to(device), z_bd.to(device)
-    x_ct, y_ct, z_ct = x_ct.to(device), y_ct.to(device), z_ct.to(device)
+    x_bd, y_bd, z_bd = x_bd.to(device), y_bd.to(device), z_bd.to(device)
     x_if, y_if = x_if.to(device), y_if.to(device)
+    nx_bd, ny_bd = nx_bd.to(device), ny_bd.to(device)
     nx_if, ny_if = nx_if.to(device), ny_if.to(device)
     k_if = k_if.to(device)
     r_if = r_if.to(device)
 
     x_inner_v, y_inner_v, z_inner_v = x_inner_v.to(device), y_inner_v.to(device), z_inner_v.to(device)
+    x_bd_v, y_bd_v, z_bd_v = x_bd_v.to(device), y_bd_v.to(device), z_bd_v.to(device)
     x_if_v, y_if_v = x_if_v.to(device), y_if_v.to(device)
+    nx_bd_v, ny_bd_v = nx_bd_v.to(device), ny_bd_v.to(device)
     nx_if_v, ny_if_v = nx_if_v.to(device), ny_if_v.to(device)
     k_if_v = k_if_v.to(device)
     r_if_v = r_if_v.to(device)
@@ -315,11 +307,12 @@ def main():
     Ca = torch.tensor(100)
     beta = torch.tensor(100)
     Rf_inner = torch.zeros_like(x_inner)
-    Rf_center = torch.zeros_like(x_ct)
+    Rf_bd = torch.zeros_like(x_bd)
     Rf_if_1 = -k_if / Ca + (1 - 1 / beta) * torch.log(r_if) / (2 * torch.pi)
     Rf_if_2 = torch.zeros_like(x_if)
 
     Rf_inner_v = torch.zeros_like(x_inner_v)
+    Rf_bd_v = torch.zeros_like(x_bd_v)
     Rf_if_1_v = -k_if_v / Ca + (1 - 1 / beta) * torch.log(r_if_v) / (2 * torch.pi)
     Rf_if_2_v = torch.zeros_like(x_if_v)
 
@@ -328,7 +321,7 @@ def main():
     tol = 1.0e-9
     mu = 1.0e3
     alpha_res = 1.0
-    alpha_ct = 1.0
+    alpha_bd = 1.0
     alpha_if_1 = 1.0
     alpha_if_2 = 1.0
     savedloss = []
@@ -343,11 +336,11 @@ def main():
             out_dims=0,
         )(model, u_params, x_inner, y_inner, z_inner, Rf_inner)
 
-        jac_ct_dict = vmap(
-            jacrev(compute_loss_center, argnums=1),
-            in_dims=(None, None, 0, 0, 0, 0),
+        jac_bd_dict = vmap(
+            jacrev(compute_loss_bd, argnums=1),
+            in_dims=(None, None, 0, 0, 0, 0, 0, 0),
             out_dims=0,
-        )(model, u_params, x_ct, y_ct, z_ct, Rf_center)
+        )(model, u_params, x_bd, y_bd, z_bd, nx_bd, ny_bd, Rf_bd)
 
         jac_if_1_dict = vmap(
             jacrev(compute_loss_if_1, argnums=1),
@@ -362,12 +355,12 @@ def main():
         )(model, u_params, x_if, y_if, nx_if, ny_if, Rf_if_2, beta)
 
         jac_res = torch.hstack([v.view(x_inner.size(0), -1) for v in jac_res_dict.values()])
-        jac_ct = torch.hstack([v.view(x_ct.size(0), -1) for v in jac_ct_dict.values()])
+        jac_bd = torch.hstack([v.view(x_bd.size(0), -1) for v in jac_bd_dict.values()])
         jac_if_1 = torch.hstack([v.view(x_if.size(0), -1) for v in jac_if_1_dict.values()])
         jac_if_2 = torch.hstack([v.view(x_if.size(0), -1) for v in jac_if_2_dict.values()])
 
         Jac_res = jac_res * torch.sqrt(alpha_res / torch.tensor(x_inner.size(0)))
-        Jac_ct = jac_ct * torch.sqrt(alpha_ct / torch.tensor(x_ct.size(0)))
+        Jac_bd = jac_bd * torch.sqrt(alpha_bd / torch.tensor(x_bd.size(0)))
         Jac_if_1 = jac_if_1 * torch.sqrt(alpha_if_1 / torch.tensor(x_if.size(0)))
         Jac_if_2 = jac_if_2 * torch.sqrt(alpha_if_2 / torch.tensor(x_if.size(0)))
         # print(f"Jac_res.shape = {Jac_res.shape}")
@@ -377,17 +370,19 @@ def main():
 
         # Compute the residual vector
         l_vec_res = compute_loss_res(model, u_params, x_inner, y_inner, z_inner, Rf_inner)
-        l_vec_ct = compute_loss_center(model, u_params, x_ct, y_ct, z_ct, Rf_center)
+        l_vec_bd = compute_loss_bd(model, u_params, x_bd, y_bd, z_bd, nx_bd, ny_bd, Rf_bd)
         l_vec_if_1 = compute_loss_if_1(model, u_params, x_if, y_if, Rf_if_1)
         l_vec_if_2 = compute_loss_if_2(model, u_params, x_if, y_if, nx_if, ny_if, Rf_if_2, beta)
         l_vec_res_v = compute_loss_res(model, u_params, x_inner_v, y_inner_v, z_inner_v, Rf_inner_v)
+        l_vec_bd_v = compute_loss_bd(model, u_params, x_bd_v, y_bd_v, z_bd_v, nx_bd_v, ny_bd_v, Rf_bd_v)
         l_vec_if_1_v = compute_loss_if_1(model, u_params, x_if_v, y_if_v, Rf_if_1_v)
         l_vec_if_2_v = compute_loss_if_2(model, u_params, x_if_v, y_if_v, nx_if_v, ny_if_v, Rf_if_2_v, beta)
         L_vec_res = l_vec_res * torch.sqrt(alpha_res / torch.tensor(x_inner.size(0)))
-        L_vec_ct = l_vec_ct * torch.sqrt(alpha_ct / torch.tensor(x_ct.size(0)))
+        L_vec_bd = l_vec_bd * torch.sqrt(alpha_bd / torch.tensor(x_bd.size(0)))
         L_vec_if_1 = l_vec_if_1 * torch.sqrt(alpha_if_1 / torch.tensor(x_if.size(0)))
         L_vec_if_2 = l_vec_if_2 * torch.sqrt(alpha_if_2 / torch.tensor(x_if.size(0)))
         L_vec_res_v = l_vec_res_v / torch.sqrt(torch.tensor(x_inner_v.size(0)))
+        L_vec_bd_v = l_vec_bd_v / torch.sqrt(torch.tensor(x_bd_v.size(0)))
         L_vec_if_1_v = l_vec_if_1_v / torch.sqrt(torch.tensor(x_if_v.size(0)))
         L_vec_if_2_v = l_vec_if_2_v / torch.sqrt(torch.tensor(x_if_v.size(0)))
         # print(f"L_vec_res.shape = {L_vec_res.shape}")
@@ -396,8 +391,8 @@ def main():
         # print(f"L_vec_if_2.shape = {L_vec_if_2.shape}")
 
         # Cat the Jacobian matrix and the residual vector
-        Jac = torch.vstack([Jac_res, Jac_ct, Jac_if_1, Jac_if_2])
-        L_vec = torch.vstack([L_vec_res, L_vec_ct, L_vec_if_1, L_vec_if_2])
+        Jac = torch.vstack([Jac_res, Jac_bd, Jac_if_1, Jac_if_2])
+        L_vec = torch.vstack([L_vec_res, L_vec_bd, L_vec_if_1, L_vec_if_2])
         # print(f"Jac.shape = {Jac.shape}")
         # print(f"L_vec.shape = {L_vec.shape}")
 
@@ -413,12 +408,13 @@ def main():
         # Compute the loss value
         loss = (
             torch.sum(L_vec_res ** 2)
-            + torch.sum(L_vec_ct ** 2)
+            + torch.sum(L_vec_bd ** 2)
             + torch.sum(L_vec_if_1 ** 2)
             + torch.sum(L_vec_if_2 ** 2)
         )
         loss_vaild = (
             torch.sum(L_vec_res_v ** 2)
+            + torch.sum(L_vec_bd_v ** 2)
             + torch.sum(L_vec_if_1_v ** 2)
             + torch.sum(L_vec_if_2_v ** 2)
         )
@@ -447,11 +443,9 @@ def main():
                 )
             )(u_params)
 
-            dloss_ct_dp = grad(
+            dloss_bd_dp = grad(
                 lambda primal: torch.sum(
-                    compute_loss_center(
-                        model, primal, x_ct, y_ct, z_ct, Rf_center
-                    )
+                    compute_loss_bd(model, primal, x_bd, y_bd, z_bd, nx_bd, ny_bd, Rf_bd)
                 )
             )(u_params)
 
@@ -471,46 +465,50 @@ def main():
 
 
             dloss_res_dp_flatten = nn.utils.parameters_to_vector(dloss_res_dp.values()) / torch.tensor(x_inner.size(0))
-            dloss_ct_dp_flatten = nn.utils.parameters_to_vector(dloss_ct_dp.values()) / torch.tensor(x_ct.size(0))
+            dloss_bd_dp_flatten = nn.utils.parameters_to_vector(dloss_bd_dp.values()) / torch.tensor(x_bd.size(0))
             dloss_if_1_dp_flatten = nn.utils.parameters_to_vector(dloss_if_1_dp.values()) / torch.tensor(x_if.size(0))
             dloss_if_2_dp_flatten = nn.utils.parameters_to_vector(dloss_if_2_dp.values()) / torch.tensor(x_if.size(0))
 
             dloss_res_dp_norm = torch.linalg.norm(dloss_res_dp_flatten)
-            dloss_ct_dp_norm = torch.linalg.norm(dloss_ct_dp_flatten)
+            dloss_bd_dp_norm = torch.linalg.norm(dloss_bd_dp_flatten)
             dloss_if_1_dp_norm = torch.linalg.norm(dloss_if_1_dp_flatten)
             dloss_if_2_dp_norm = torch.linalg.norm(dloss_if_2_dp_flatten)
 
             alpha_res_bar = (
-                dloss_ct_dp_norm +
-                dloss_if_1_dp_norm +
-                dloss_if_2_dp_norm
+                dloss_res_dp_norm
+                + dloss_bd_dp_norm
+                + dloss_if_1_dp_norm
+                + dloss_if_2_dp_norm
             ) / dloss_res_dp_norm
 
-            alpha_ct_bar = (
-                dloss_ct_dp_norm +
-                dloss_if_1_dp_norm +
-                dloss_if_2_dp_norm
-            ) / dloss_ct_dp_norm
+            alpha_bd_bar = (
+                dloss_res_dp_norm
+                + dloss_bd_dp_norm
+                + dloss_if_1_dp_norm
+                + dloss_if_2_dp_norm
+            ) / dloss_bd_dp_norm
 
             alpha_if_1_bar = (
-                dloss_ct_dp_norm +
-                dloss_if_1_dp_norm +
-                dloss_if_2_dp_norm
+                dloss_res_dp_norm
+                + dloss_bd_dp_norm
+                + dloss_if_1_dp_norm
+                + dloss_if_2_dp_norm
             ) / dloss_if_1_dp_norm
 
             alpha_if_2_bar = (
-                dloss_ct_dp_norm +
-                dloss_if_1_dp_norm +
-                dloss_if_2_dp_norm
+                dloss_res_dp_norm
+                + dloss_bd_dp_norm
+                + dloss_if_1_dp_norm
+                + dloss_if_2_dp_norm
             ) / dloss_if_2_dp_norm
 
-            # Update the parameters alpha_ct, alpha_if_1 and alpha_if_2
+            # Update the parameters alpha_res, alpha_if_1 and alpha_if_2
             alpha_res = (1 - 0.1) * alpha_res + 0.1 * alpha_res_bar
-            alpha_ct = (1 - 0.1) * alpha_ct + 0.1 * alpha_ct_bar
+            alpha_bd = (1 - 0.1) * alpha_bd + 0.1 * alpha_bd_bar
             alpha_if_1 = (1 - 0.1) * alpha_if_1 + 0.1 * alpha_if_1_bar
             alpha_if_2 = (1 - 0.1) * alpha_if_2 + 0.1 * alpha_if_2_bar
             print(f"alpha_res = {alpha_res:.2f}")
-            print(f"alpha_ct = {alpha_ct:.2f}")
+            print(f"alpha_bd = {alpha_bd:.2f}")
             print(f"alpha_if_1 = {alpha_if_1:.2f}")
             print(f"alpha_if_2 = {alpha_if_2:.2f}")
 
