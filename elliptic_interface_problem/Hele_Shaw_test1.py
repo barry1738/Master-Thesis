@@ -32,29 +32,28 @@ class CreateMesh:
         self.func = interface_func
         self.r = radius
 
-    # def domain_points(self, n, *, xc=0, yc=0):
-    #     """Uniform random distribution within a circle"""
-    #     radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
-    #     theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
-    #     x = xc + radius * torch.cos(theta)
-    #     y = yc + radius * torch.sin(theta)
-    #     return x, y
-
     def domain_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution within a circle"""
-        nx = n // 5
-        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=2*nx))
-        theta_if = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=3*nx))
-        radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=2*nx)))
-        radius_if = self.func(theta_if)
-        x_eps = torch.Tensor(3*nx, 1).uniform_(-0.2, 0.2)
-        y_eps = torch.Tensor(3*nx, 1).uniform_(-0.2, 0.2)
+        radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
+        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
         x = xc + radius * torch.cos(theta)
         y = yc + radius * torch.sin(theta)
-        x_if = xc + (radius_if + x_eps) * torch.cos(theta_if)
-        y_if = yc + (radius_if + y_eps) * torch.sin(theta_if)
-        return torch.vstack((x, x_if)), torch.vstack((y, y_if))
-        # return x_if, y_if
+        return x, y
+
+    # def domain_points(self, n, *, xc=0, yc=0):
+    #     """Uniform random distribution within a circle"""
+    #     nx = n // 4
+    #     theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=2 * nx))
+    #     radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=2 * nx)))
+    #     theta_if = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=2 * nx))
+    #     radius_if = self.func(theta_if)
+    #     x_eps = 0.2 * torch.rand(2 * nx, 1)
+    #     y_eps = 0.2 * torch.rand(2 * nx, 1)
+    #     x = xc + radius * torch.cos(theta)
+    #     y = yc + radius * torch.sin(theta)
+    #     x_if = xc + (radius_if + x_eps) * torch.cos(theta_if)
+    #     y_if = yc + (radius_if + y_eps) * torch.sin(theta_if)
+    #     return torch.vstack((x, x_if)), torch.vstack((y, y_if))
     
     def boundary_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution on a circle"""
@@ -230,14 +229,14 @@ def cholesky(J, diff, mu):
 
 def main():
     # Define the model
-    model = Model(3, [40, 40], 1).to(device)
+    model = Model(3, [40, 40, 40], 1).to(device)
     # print(model)
 
     # Create the training data
     mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(3 * t), radius=2.0)
-    x_inner, y_inner = mesh.domain_points(1000)
+    x_inner, y_inner = mesh.domain_points(2000)
     x_bd, y_bd = mesh.boundary_points(100)
-    x_if, y_if = mesh.interface_points(200)
+    x_if, y_if = mesh.interface_points(500)
     z_inner = mesh.sign(x_inner, y_inner)
     z_bd = torch.ones_like(x_bd)
 
@@ -268,7 +267,7 @@ def main():
     # Plot the training data
     fig, ax = plt.subplots(1, 2, figsize=(10, 5))
     ax[0].scatter(x_inner, y_inner, c=z_inner, s=1)
-    ax[0].scatter(x_bd, y_bd, c=z_bd, s=1)
+    # ax[0].scatter(x_bd, y_bd, c=z_bd, s=1)
     sca = ax[0].scatter(x_if, y_if, c=k_if, s=1)
     # ax.quiver(x_if, y_if, nx_if, ny_if, angles="xy", scale_units="xy", scale=5)
     ax[0].axis('square')
@@ -319,7 +318,7 @@ def main():
     # Start the training
     Niter = 1000
     tol = 1.0e-9
-    mu = 1.0e3
+    mu = 1.0e1
     alpha_res = 1.0
     alpha_bd = 1.0
     alpha_if_1 = 1.0
@@ -336,11 +335,11 @@ def main():
             out_dims=0,
         )(model, u_params, x_inner, y_inner, z_inner, Rf_inner)
 
-        jac_bd_dict = vmap(
-            jacrev(compute_loss_bd, argnums=1),
-            in_dims=(None, None, 0, 0, 0, 0, 0, 0),
-            out_dims=0,
-        )(model, u_params, x_bd, y_bd, z_bd, nx_bd, ny_bd, Rf_bd)
+        # jac_bd_dict = vmap(
+        #     jacrev(compute_loss_bd, argnums=1),
+        #     in_dims=(None, None, 0, 0, 0, 0, 0, 0),
+        #     out_dims=0,
+        # )(model, u_params, x_bd, y_bd, z_bd, nx_bd, ny_bd, Rf_bd)
 
         jac_if_1_dict = vmap(
             jacrev(compute_loss_if_1, argnums=1),
@@ -355,12 +354,12 @@ def main():
         )(model, u_params, x_if, y_if, nx_if, ny_if, Rf_if_2, beta)
 
         jac_res = torch.hstack([v.view(x_inner.size(0), -1) for v in jac_res_dict.values()])
-        jac_bd = torch.hstack([v.view(x_bd.size(0), -1) for v in jac_bd_dict.values()])
+        # jac_bd = torch.hstack([v.view(x_bd.size(0), -1) for v in jac_bd_dict.values()])
         jac_if_1 = torch.hstack([v.view(x_if.size(0), -1) for v in jac_if_1_dict.values()])
         jac_if_2 = torch.hstack([v.view(x_if.size(0), -1) for v in jac_if_2_dict.values()])
 
         Jac_res = jac_res * torch.sqrt(alpha_res / torch.tensor(x_inner.size(0)))
-        Jac_bd = jac_bd * torch.sqrt(alpha_bd / torch.tensor(x_bd.size(0)))
+        # Jac_bd = jac_bd * torch.sqrt(alpha_bd / torch.tensor(x_bd.size(0)))
         Jac_if_1 = jac_if_1 * torch.sqrt(alpha_if_1 / torch.tensor(x_if.size(0)))
         Jac_if_2 = jac_if_2 * torch.sqrt(alpha_if_2 / torch.tensor(x_if.size(0)))
         # print(f"Jac_res.shape = {Jac_res.shape}")
@@ -370,19 +369,19 @@ def main():
 
         # Compute the residual vector
         l_vec_res = compute_loss_res(model, u_params, x_inner, y_inner, z_inner, Rf_inner)
-        l_vec_bd = compute_loss_bd(model, u_params, x_bd, y_bd, z_bd, nx_bd, ny_bd, Rf_bd)
+        # l_vec_bd = compute_loss_bd(model, u_params, x_bd, y_bd, z_bd, nx_bd, ny_bd, Rf_bd)
         l_vec_if_1 = compute_loss_if_1(model, u_params, x_if, y_if, Rf_if_1)
         l_vec_if_2 = compute_loss_if_2(model, u_params, x_if, y_if, nx_if, ny_if, Rf_if_2, beta)
         l_vec_res_v = compute_loss_res(model, u_params, x_inner_v, y_inner_v, z_inner_v, Rf_inner_v)
-        l_vec_bd_v = compute_loss_bd(model, u_params, x_bd_v, y_bd_v, z_bd_v, nx_bd_v, ny_bd_v, Rf_bd_v)
+        # l_vec_bd_v = compute_loss_bd(model, u_params, x_bd_v, y_bd_v, z_bd_v, nx_bd_v, ny_bd_v, Rf_bd_v)
         l_vec_if_1_v = compute_loss_if_1(model, u_params, x_if_v, y_if_v, Rf_if_1_v)
         l_vec_if_2_v = compute_loss_if_2(model, u_params, x_if_v, y_if_v, nx_if_v, ny_if_v, Rf_if_2_v, beta)
         L_vec_res = l_vec_res * torch.sqrt(alpha_res / torch.tensor(x_inner.size(0)))
-        L_vec_bd = l_vec_bd * torch.sqrt(alpha_bd / torch.tensor(x_bd.size(0)))
+        # L_vec_bd = l_vec_bd * torch.sqrt(alpha_bd / torch.tensor(x_bd.size(0)))
         L_vec_if_1 = l_vec_if_1 * torch.sqrt(alpha_if_1 / torch.tensor(x_if.size(0)))
         L_vec_if_2 = l_vec_if_2 * torch.sqrt(alpha_if_2 / torch.tensor(x_if.size(0)))
         L_vec_res_v = l_vec_res_v / torch.sqrt(torch.tensor(x_inner_v.size(0)))
-        L_vec_bd_v = l_vec_bd_v / torch.sqrt(torch.tensor(x_bd_v.size(0)))
+        # L_vec_bd_v = l_vec_bd_v / torch.sqrt(torch.tensor(x_bd_v.size(0)))
         L_vec_if_1_v = l_vec_if_1_v / torch.sqrt(torch.tensor(x_if_v.size(0)))
         L_vec_if_2_v = l_vec_if_2_v / torch.sqrt(torch.tensor(x_if_v.size(0)))
         # print(f"L_vec_res.shape = {L_vec_res.shape}")
@@ -391,14 +390,16 @@ def main():
         # print(f"L_vec_if_2.shape = {L_vec_if_2.shape}")
 
         # Cat the Jacobian matrix and the residual vector
-        Jac = torch.vstack([Jac_res, Jac_bd, Jac_if_1, Jac_if_2])
-        L_vec = torch.vstack([L_vec_res, L_vec_bd, L_vec_if_1, L_vec_if_2])
+        # Jac = torch.vstack([Jac_res, Jac_bd, Jac_if_1, Jac_if_2])
+        # L_vec = torch.vstack([L_vec_res, L_vec_bd, L_vec_if_1, L_vec_if_2])
+        Jac = torch.vstack([Jac_res, Jac_if_1, Jac_if_2])
+        L_vec = torch.vstack([L_vec_res, L_vec_if_1, L_vec_if_2])
         # print(f"Jac.shape = {Jac.shape}")
         # print(f"L_vec.shape = {L_vec.shape}")
 
         # Solve the linear system
-        p = qr_decomposition(Jac, L_vec, mu)
-        # p = cholesky(Jac, L_vec, mu)
+        # p = qr_decomposition(Jac, L_vec, mu)
+        p = cholesky(Jac, L_vec, mu)
         u_params_flatten = nn.utils.parameters_to_vector(u_params.values())
         u_params_flatten += p
 
@@ -408,13 +409,13 @@ def main():
         # Compute the loss value
         loss = (
             torch.sum(L_vec_res ** 2)
-            + torch.sum(L_vec_bd ** 2)
+            # + torch.sum(L_vec_bd ** 2)
             + torch.sum(L_vec_if_1 ** 2)
             + torch.sum(L_vec_if_2 ** 2)
         )
         loss_vaild = (
             torch.sum(L_vec_res_v ** 2)
-            + torch.sum(L_vec_bd_v ** 2)
+            # + torch.sum(L_vec_bd_v ** 2)
             + torch.sum(L_vec_if_1_v ** 2)
             + torch.sum(L_vec_if_2_v ** 2)
         )
@@ -433,7 +434,7 @@ def main():
             if savedloss[step] > savedloss[step - 1]:
                 mu = min(mu * 2.0, 1.0e8)
             else:
-                mu = max(mu / 3.0, 1.0e-10)
+                mu = max(mu / 5.0, 1.0e-10)
 
         if step % 100 == 0:
             # Compute the parameters alpha_bd, alpha_if_1 and alpha_if_2
@@ -476,7 +477,7 @@ def main():
 
             alpha_res_bar = (
                 dloss_res_dp_norm
-                + dloss_bd_dp_norm
+                # + dloss_bd_dp_norm
                 + dloss_if_1_dp_norm
                 + dloss_if_2_dp_norm
             ) / dloss_res_dp_norm
@@ -490,14 +491,14 @@ def main():
 
             alpha_if_1_bar = (
                 dloss_res_dp_norm
-                + dloss_bd_dp_norm
+                # + dloss_bd_dp_norm
                 + dloss_if_1_dp_norm
                 + dloss_if_2_dp_norm
             ) / dloss_if_1_dp_norm
 
             alpha_if_2_bar = (
                 dloss_res_dp_norm
-                + dloss_bd_dp_norm
+                # + dloss_bd_dp_norm
                 + dloss_if_1_dp_norm
                 + dloss_if_2_dp_norm
             ) / dloss_if_2_dp_norm
@@ -508,7 +509,7 @@ def main():
             alpha_if_1 = (1 - 0.1) * alpha_if_1 + 0.1 * alpha_if_1_bar
             alpha_if_2 = (1 - 0.1) * alpha_if_2 + 0.1 * alpha_if_2_bar
             print(f"alpha_res = {alpha_res:.2f}")
-            print(f"alpha_bd = {alpha_bd:.2f}")
+            # print(f"alpha_bd = {alpha_bd:.2f}")
             print(f"alpha_if_1 = {alpha_if_1:.2f}")
             print(f"alpha_if_2 = {alpha_if_2:.2f}")
 
