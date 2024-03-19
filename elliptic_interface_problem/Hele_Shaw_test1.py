@@ -19,7 +19,7 @@ print("device = ", device)
 # pwd = "/home/barry/Desktop/2024_03_18/"
 pwd = "C:\\Users\\barry\\Desktop\\2024_03_18\\"
 # dir_name = "cos_6t/"
-dir_name = "cos_3t\\"
+dir_name = "cos_4t\\"
 if not os.path.exists(pwd + dir_name):
     print("Creating data directory...")
     os.makedirs(pwd + dir_name)
@@ -32,28 +32,28 @@ class CreateMesh:
         self.func = interface_func
         self.r = radius
 
-    def domain_points(self, n, *, xc=0, yc=0):
-        """Uniform random distribution within a circle"""
-        radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
-        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
-        x = xc + radius * torch.cos(theta)
-        y = yc + radius * torch.sin(theta)
-        return x, y
-
     # def domain_points(self, n, *, xc=0, yc=0):
     #     """Uniform random distribution within a circle"""
-    #     nx = n // 4
-    #     theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=2 * nx))
-    #     radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=2 * nx)))
-    #     theta_if = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=2 * nx))
-    #     radius_if = self.func(theta_if)
-    #     x_eps = 0.2 * torch.rand(2 * nx, 1)
-    #     y_eps = 0.2 * torch.rand(2 * nx, 1)
+    #     radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
+    #     theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
     #     x = xc + radius * torch.cos(theta)
     #     y = yc + radius * torch.sin(theta)
-    #     x_if = xc + (radius_if + x_eps) * torch.cos(theta_if)
-    #     y_if = yc + (radius_if + y_eps) * torch.sin(theta_if)
-    #     return torch.vstack((x, x_if)), torch.vstack((y, y_if))
+    #     return x, y
+
+    def domain_points(self, n, *, xc=0, yc=0):
+        """Uniform random distribution within a circle"""
+        nx = n // 4
+        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=2 * nx))
+        radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=2 * nx)))
+        theta_if = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=2 * nx))
+        radius_if = self.func(theta_if)
+        x_eps = 0.2 * torch.rand(2 * nx, 1)
+        y_eps = 0.2 * torch.rand(2 * nx, 1)
+        x = xc + radius * torch.cos(theta)
+        y = yc + radius * torch.sin(theta)
+        x_if = xc + (radius_if + x_eps) * torch.cos(theta_if)
+        y_if = yc + (radius_if + y_eps) * torch.sin(theta_if)
+        return torch.vstack((x, x_if)), torch.vstack((y, y_if))
     
     def boundary_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution on a circle"""
@@ -233,7 +233,7 @@ def main():
     # print(model)
 
     # Create the training data
-    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(3 * t), radius=2.0)
+    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(4 * t), radius=5.0)
     x_inner, y_inner = mesh.domain_points(2000)
     x_bd, y_bd = mesh.boundary_points(100)
     x_if, y_if = mesh.interface_points(500)
@@ -298,7 +298,7 @@ def main():
     # get the training parameters and total number of parameters
     u_params = dict(model.named_parameters())
     # 10 times the initial parameters
-    u_params_flatten = 10.0 * nn.utils.parameters_to_vector(u_params.values())
+    u_params_flatten = 20.0 * nn.utils.parameters_to_vector(u_params.values())
     nn.utils.vector_to_parameters(u_params_flatten, u_params.values())
     print(f"Number of parameters = {u_params_flatten.numel()}")
 
@@ -311,14 +311,14 @@ def main():
     Rf_if_2 = torch.zeros_like(x_if)
 
     Rf_inner_v = torch.zeros_like(x_inner_v)
-    Rf_bd_v = torch.zeros_like(x_bd_v)
+    # Rf_bd_v = torch.zeros_like(x_bd_v)
     Rf_if_1_v = -k_if_v / Ca + (1 - 1 / beta) * torch.log(r_if_v) / (2 * torch.pi)
     Rf_if_2_v = torch.zeros_like(x_if_v)
 
     # Start the training
     Niter = 1000
     tol = 1.0e-9
-    mu = 1.0e1
+    mu = 1.0e-3
     alpha_res = 1.0
     alpha_bd = 1.0
     alpha_if_1 = 1.0
@@ -515,7 +515,7 @@ def main():
 
 
     # Save the Model
-    torch.save(model, pwd + dir_name + "model_cos_3t.pt")
+    torch.save(model, pwd + dir_name + "model_cos_4t.pt")
 
     # Plot the loss function
     fig, ax = plt.subplots(figsize=(6, 6))

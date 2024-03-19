@@ -143,7 +143,8 @@ def forward_dyy(model, params, x, y, z):
 
 def predict(model, params, x, y, z):
     """Compute the model output."""
-    return functional_call(model, params, (x, y, z)) / torch.sqrt(x**2 + y**2)
+    r2 = torch.where(z > 0, x**2 + y**2, 1.0)
+    return functional_call(model, params, (x, y, z)) / r2
 
 
 def predict_dx(model, params, x, y, z):
@@ -160,7 +161,7 @@ def predict_dy(model, params, x, y, z):
 
 # Load the model
 model = torch.load(
-    "C:\\Users\\barry\\Desktop\\2024_03_18\\cos_2t\\model_cos_6t.pt",
+    "C:\\Users\\barry\\Desktop\\2024_03_18\\cos_3t\\model_cos_3t.pt",
     map_location=torch.device("cpu"),
 )
 model.eval()
@@ -171,16 +172,15 @@ params = dict(model.named_parameters())
 
 # Create the mesh
 mesh = CreateMesh(
-    interface_func=lambda theta: 1 + torch.cos(2 * theta) / 10, radius=1.5
+    interface_func=lambda theta: 1 + torch.cos(3 * theta) / 10, radius=2.0
 )
 plot_x, plot_y = mesh.domain_points(50000)
 plot_z = mesh.sign(plot_x, plot_y)
-# plot_z = torch.ones_like(plot_x)
 # result = functional_call(model, params, (plot_x, plot_y, plot_z)).detach().numpy()
 result = predict(model, params, plot_x, plot_y, plot_z).detach().numpy()
 
 # Plot the resutls on the interface
-theta = torch.tensor(np.linspace(0, 2 * np.pi, 1000).reshape(-1, 1))
+theta = torch.tensor(np.linspace(0, 2 * np.pi, 513).reshape(-1, 1))
 r = mesh.func(theta)
 if_x = r * torch.cos(theta)
 if_y = r * torch.sin(theta)
@@ -201,7 +201,7 @@ ax1 = fig.add_subplot(1, 2, 1, projection="3d")
 sc = ax1.scatter(plot_x, plot_y, result, c=result, cmap="coolwarm", s=1)
 ax1.axes.zaxis.set_ticklabels([])
 fig.colorbar(sc, shrink=0.5, aspect=7, pad=0.02)
-ax1.set_title(r"$1+0.1\cos(2\theta)$, z=1")
+# ax1.set_title(r"$1+0.1\cos(3\theta)$, z=1")
 # plt.savefig("C:\\Users\\barry\\Desktop\\cos_2t.png", dpi=300)
 # plt.show()
 
@@ -211,16 +211,17 @@ sc2 = ax2.plot(theta, pred.detach().numpy())
 plt.show()
 
 # Save the results to csv
-# df = pd.DataFrame(
-#     {
-#         "theta": theta.detach().numpy().flatten(),
-#         "pred": pred.detach().numpy().flatten(),
-#         "k_if": k_if.detach().numpy().flatten(),
-#     }
-# )
-# df.to_csv(
-#     "C:\\Users\\barry\\Desktop\\cos6t_data.csv",
-#     index=False,
-#     header=False,
-#     encoding='utf-8'
-# )
+df = pd.DataFrame(
+    {
+        "theta": theta.detach().numpy().flatten(),
+        "pred": pred.detach().numpy().flatten(),
+        "k_if": k_if.detach().numpy().flatten(),
+    }
+)
+df.to_csv(
+    "C:\\Users\\barry\\Desktop\\cos3t_data.csv",
+    index=False,
+    header=False,
+    float_format="%.16f",
+    encoding='utf-8'
+)
