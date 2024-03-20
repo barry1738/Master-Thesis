@@ -1,11 +1,10 @@
 """
-    Taylor-Green Vortex
+Taylor-Green Vortex
 
-    u_tt + u*u_x - v*u_y = - p_x - RE*Δu
-    v_tt + u*v_x + v*v_y = - p_y - RE*Δv
-    u_x + v_y = 0
+u_tt + u*u_x - v*u_y = - p_x - RE*Δu
+v_tt + u*v_x + v*v_y = - p_y - RE*Δv
+u_x + v_y = 0
 """
-
 
 import os
 import torch
