@@ -5,33 +5,37 @@ torch.set_default_dtype(torch.float64)
 
 
 class CreateMesh:
-    def create_mesh(self, left, right, top, bottom, domain):
-        inside_points = torch.from_numpy(qmc.LatinHypercube(d=2).random(n=domain))
+    def inner_points(self, nx):
+        points_x = torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx))
+        points_y = torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx))
+        return points_x, points_y
 
-        left_boundary = torch.hstack((
-            torch.full((left, 1), 0.0),
-            torch.from_numpy(qmc.LatinHypercube(d=1).random(n=left))
-        ))
-        right_boundary = torch.hstack((
-            torch.full((right, 1), 1.0),
-            torch.from_numpy(qmc.LatinHypercube(d=1).random(n=right))
-        ))
-        top_boundary = torch.hstack((
-            torch.from_numpy(qmc.LatinHypercube(d=1).random(n=top)),
-            torch.full((top, 1), 1.0)
-        ))
-        bottom_boundary = torch.hstack((
-            torch.from_numpy(qmc.LatinHypercube(d=1).random(n=bottom)),
-            torch.full((bottom, 1), 0.0)
-        ))
+    def boundary_points(self, nx):
+        left_bd_x = torch.full((nx, 1), 0.0)
+        right_bd_x = torch.full((nx, 1), 1.0)
+        top_bd_x = torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx))
+        bottom_bd_x = torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx))
 
-        return inside_points, left_boundary, right_boundary, top_boundary, bottom_boundary
+        left_bd_y = torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx))
+        right_bd_y = torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx))
+        top_bd_y = torch.full((nx, 1), 1.0)
+        bottom_bd_y = torch.full((nx, 1), 0.0)
 
+        points_x = torch.vstack((left_bd_x, right_bd_x, top_bd_x, bottom_bd_x))
+        points_y = torch.vstack((left_bd_y, right_bd_y, top_bd_y, bottom_bd_y))
+        return points_x, points_y
+    
+    def normal_vector(self, x, y):
+        nx_left = torch.full((x.size(0), 1), -1.0)
+        nx_right = torch.full((x.size(0), 1), 1.0)
+        nx_top = torch.zeros((x.size(0), 1))
+        nx_bottom = torch.zeros((x.size(0), 1))
 
-# mesh = CreateMesh()
-# inside, left, right, top, bottom = mesh.create_mesh(10, 10, 10, 10, 100)
-# print(inside.shape)
-# print(left.shape)
-# print(right.shape)
-# print(top.shape)
-# print(bottom.shape)
+        ny_left = torch.zeros((y.size(0), 1))
+        ny_right = torch.zeros((y.size(0), 1))
+        ny_top = torch.full((y.size(0), 1), 1.0)
+        ny_bottom = torch.full((y.size(0), 1), -1.0)
+
+        nx = torch.vstack((nx_left, nx_right, nx_top, nx_bottom))
+        ny = torch.vstack((ny_left, ny_right, ny_top, ny_bottom))
+        return nx, ny
