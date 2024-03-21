@@ -137,22 +137,22 @@ def main():
     mesh = CreateMesh()
     # interior points
     x_inner = mesh.interior_points(1000)
-    x_inner_vaild = mesh.interior_points(10000)
+    x_inner_valid = mesh.interior_points(10000)
     # boundary points
     x_bd = mesh.boundary_points(100)
-    x_bd_vaild = mesh.boundary_points(1000)
+    x_bd_valid = mesh.boundary_points(1000)
     print(f"inner_x = {x_inner.shape}")
     print(f"boundary_x = {x_bd.shape}")
 
     X_inner_torch = torch.from_numpy(x_inner).to(device)
     X_bd_torch = torch.from_numpy(x_bd).to(device)
-    X_inner_vaild_torch = torch.from_numpy(x_inner_vaild).to(device)
-    X_bd_vaild_torch = torch.from_numpy(x_bd_vaild).to(device)
+    X_inner_valid_torch = torch.from_numpy(x_inner_valid).to(device)
+    X_bd_valid_torch = torch.from_numpy(x_bd_valid).to(device)
 
     X_inner, Y_inner = X_inner_torch[:, 0].reshape(-1, 1), X_inner_torch[:, 1].reshape(-1, 1)
     X_bd, Y_bd = X_bd_torch[:, 0].reshape(-1, 1), X_bd_torch[:, 1].reshape(-1, 1)
-    X_inner_vaild, Y_inner_vaild = X_inner_vaild_torch[:, 0].reshape(-1, 1), X_inner_vaild_torch[:, 1].reshape(-1, 1)
-    X_bd_vaild, Y_bd_vaild = X_bd_vaild_torch[:, 0].reshape(-1, 1), X_bd_vaild_torch[:, 1].reshape(-1, 1)
+    X_inner_valid, Y_inner_valid = X_inner_valid_torch[:, 0].reshape(-1, 1), X_inner_valid_torch[:, 1].reshape(-1, 1)
+    X_bd_valid, Y_bd_valid = X_bd_valid_torch[:, 0].reshape(-1, 1), X_bd_valid_torch[:, 1].reshape(-1, 1)
 
     model = Model(2, [20, 20], 1).to(device)  # hidden layers = [...](list)
     print(model)
@@ -169,15 +169,15 @@ def main():
 
     Rf_inner = rhs(X_inner, Y_inner)
     Rf_bd = exact_sol(X_bd, Y_bd)
-    Rf_inner_vaild = rhs(X_inner_vaild, Y_inner_vaild)
-    Rf_bd_vaild = exact_sol(X_bd_vaild, Y_bd_vaild)
+    Rf_inner_valid = rhs(X_inner_valid, Y_inner_valid)
+    Rf_bd_valid = exact_sol(X_bd_valid, Y_bd_valid)
 
     # Start training
     Niter = 1000
     tol = 1.0e-10
     mu = 1.0e5
     savedloss = []
-    saveloss_vaild = []
+    saveloss_valid = []
     alpha = 1.0
     beta = 1.0
 
@@ -207,14 +207,14 @@ def main():
         # Put into loss functional to get L_vec
         L_vec_res = compute_loss_Res(model, u_params, X_inner, Y_inner, Rf_inner)
         L_vec_b = compute_loss_Bd(model, u_params, X_bd, Y_bd, Rf_bd)
-        L_vec_res_vaild = compute_loss_Res(model, u_params, X_inner_vaild, Y_inner_vaild, Rf_inner_vaild)
-        L_vec_b_vaild = compute_loss_Bd(model, u_params, X_bd_vaild, Y_bd_vaild, Rf_bd_vaild)
+        L_vec_res_valid = compute_loss_Res(model, u_params, X_inner_valid, Y_inner_valid, Rf_inner_valid)
+        L_vec_b_valid = compute_loss_Bd(model, u_params, X_bd_valid, Y_bd_valid, Rf_bd_valid)
         # print(f"loss_Res = {L_vec_res.size()}")
         # print(f"loss_Bd = {L_vec_b.size()}")
         L_vec_res = L_vec_res * torch.sqrt(alpha / torch.tensor(X_inner.size(0)))
         L_vec_b = L_vec_b * torch.sqrt(beta / torch.tensor(X_bd.size(0)))
-        L_vec_res_vaild = L_vec_res_vaild / torch.sqrt(torch.tensor(X_inner_vaild.size(0)))
-        L_vec_b_vaild = L_vec_b_vaild / torch.sqrt(torch.tensor(X_bd_vaild.size(0)))
+        L_vec_res_valid = L_vec_res_valid / torch.sqrt(torch.tensor(X_inner_valid.size(0)))
+        L_vec_b_valid = L_vec_b_valid / torch.sqrt(torch.tensor(X_bd_valid.size(0)))
 
         # Cat Jac_res and Jac_b into J_mat
         J_mat = torch.vstack((Jac_res, Jac_b))
@@ -233,12 +233,12 @@ def main():
         loss = (
             torch.sum(L_vec_res**2) + torch.sum(L_vec_b**2)
         )
-        loss_vaild = (
-            torch.sum(L_vec_res_vaild**2) + torch.sum(L_vec_b_vaild**2)
+        loss_valid = (
+            torch.sum(L_vec_res_valid**2) + torch.sum(L_vec_b_valid**2)
         )
         print(f"step = {step}, loss = {loss.item():.2e}, mu = {mu:.1e}")
         savedloss.append(loss.item())
-        saveloss_vaild.append(loss_vaild.item())
+        saveloss_valid.append(loss_valid.item())
 
         if step % 50 == 0:
             # Compute the aplha_bar and beta_bar
@@ -283,7 +283,7 @@ def main():
     # Plot the loss function
     fig, ax = plt.subplots()
     ax.semilogy(savedloss, "k-", label="training loss")
-    ax.semilogy(saveloss_vaild, "r--", label="test loss")
+    ax.semilogy(saveloss_valid, "r--", label="test loss")
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Loss")
     ax.legend()
