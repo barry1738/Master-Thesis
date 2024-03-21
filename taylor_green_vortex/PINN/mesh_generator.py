@@ -26,15 +26,15 @@ class CreateMesh:
         return points_x, points_y
     
     def normal_vector(self, x, y):
-        nx_left = torch.full((x.size(0), 1), -1.0)
-        nx_right = torch.full((x.size(0), 1), 1.0)
-        nx_top = torch.zeros((x.size(0), 1))
-        nx_bottom = torch.zeros((x.size(0), 1))
+        nx_left = torch.full((x.size(0)//4, 1), -1.0)
+        nx_right = torch.full((x.size(0)//4, 1), 1.0)
+        nx_top = torch.zeros((x.size(0)//4, 1))
+        nx_bottom = torch.zeros((x.size(0)//4, 1))
 
-        ny_left = torch.zeros((y.size(0), 1))
-        ny_right = torch.zeros((y.size(0), 1))
-        ny_top = torch.full((y.size(0), 1), 1.0)
-        ny_bottom = torch.full((y.size(0), 1), -1.0)
+        ny_left = torch.zeros((y.size(0)//4, 1))
+        ny_right = torch.zeros((y.size(0)//4, 1))
+        ny_top = torch.full((y.size(0)//4, 1), 1.0)
+        ny_bottom = torch.full((y.size(0)//4, 1), -1.0)
 
         nx = torch.vstack((nx_left, nx_right, nx_top, nx_bottom))
         ny = torch.vstack((ny_left, ny_right, ny_top, ny_bottom))

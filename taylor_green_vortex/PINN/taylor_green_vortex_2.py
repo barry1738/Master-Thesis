@@ -71,18 +71,22 @@ class PinnModel(nn.Module):
         return sum(p.numel() for p in self.parameters())
     
 
-def prediction_step(model, training_data, prev_val, prev_val_valid, step):
+def prediction_step(model_u_star, model_v_star, training_data, prev_val, prev_val_valid, step):
     """The prediction step of the projection method"""
     # Unpack the training data
     x_inner, y_inner = training_data[0]
     x_bd, y_bd = training_data[1]
     x_inner_v, y_inner_v = training_data[2]
     x_bd_v, y_bd_v = training_data[3]
-    nx, ny = training_data[4]
 
     # Define the parameters
-    u_star_params = dict(model.named_parameters())
-    v_star_params = dict(model.named_parameters())
+    u_star_params = dict(model_u_star.named_parameters())
+    v_star_params = dict(model_v_star.named_parameters())
+    # 5 times the parameters of phi_params
+    u_star_params_flatten = 5 * nn.utils.parameters_to_vector(u_star_params.values())
+    v_star_params_flatten = 5 * nn.utils.parameters_to_vector(v_star_params.values())
+    nn.utils.vector_to_parameters(u_star_params_flatten, u_star_params.values())
+    nn.utils.vector_to_parameters(v_star_params_flatten, v_star_params.values())
 
     # Compute the right-hand side values
     Rf_u_inner = (
@@ -166,11 +170,11 @@ def prediction_step(model, training_data, prev_val, prev_val_valid, step):
             # Compute the jacobi matrix
             jac_res_dict_u = vmap(
                 jacrev(compute_loss_res, argnums=(1)), in_dims=(None, None, 0, 0, 0), out_dims=0
-            )(model, u_star_params, x_inner, y_inner, Rf_u_inner)
+            )(model_u_star, u_star_params, x_inner, y_inner, Rf_u_inner)
 
             jac_bd_dict_u = vmap(
                 jacrev(compute_loss_bd, argnums=(1)), in_dims=(None, None, 0, 0, 0), out_dims=0
-            )(model, u_star_params, x_bd, y_bd, Rf_u_bd)
+            )(model_u_star, u_star_params, x_bd, y_bd, Rf_u_bd)
 
             # Stack the jacobian matrix
             jac_res_u = torch.hstack([v.view(x_inner.size(0), -1) for v in jac_res_dict_u.values()])
@@ -179,10 +183,10 @@ def prediction_step(model, training_data, prev_val, prev_val_valid, step):
             jac_bd_u *= torch.sqrt(beta_u / torch.tensor(x_bd.size(0)))
 
             # Compute the residual of the loss function
-            l_vec_res_u = compute_loss_res(model, u_star_params, x_inner, y_inner, Rf_u_inner)
-            l_vec_bd_u = compute_loss_bd(model, u_star_params, x_bd, y_bd, Rf_u_bd)
-            l_vec_res_u_valid = compute_loss_res(model, u_star_params, x_inner_v, y_inner_v, Rf_u_inner_valid)
-            l_vec_bd_u_valid = compute_loss_bd(model, u_star_params, x_bd_v, y_bd_v, Rf_u_bd_valid)
+            l_vec_res_u = compute_loss_res(model_u_star, u_star_params, x_inner, y_inner, Rf_u_inner)
+            l_vec_bd_u = compute_loss_bd(model_u_star, u_star_params, x_bd, y_bd, Rf_u_bd)
+            l_vec_res_u_valid = compute_loss_res(model_u_star, u_star_params, x_inner_v, y_inner_v, Rf_u_inner_valid)
+            l_vec_bd_u_valid = compute_loss_bd(model_u_star, u_star_params, x_bd_v, y_bd_v, Rf_u_bd_valid)
             l_vec_res_u *= torch.sqrt(alpha_u / torch.tensor(x_inner.size(0)))
             l_vec_bd_u *= torch.sqrt(beta_u / torch.tensor(x_bd.size(0)))
             l_vec_res_u_valid /= torch.sqrt(torch.tensor(x_inner_v.size(0)))
@@ -205,11 +209,10 @@ def prediction_step(model, training_data, prev_val, prev_val_valid, step):
             savedloss_u.append(loss_u.item())
             savedloss_u_valid.append(loss_u_valid.item())
 
-            print(f"iter: {iter}, loss_u: {loss_u.item():.2e}, mu_u: {mu_u:.1e}")
-
             # Stop the training if the loss function is converged
             if (iter == Niter - 1) or (loss_u < tol):
-                break
+                print('Successful training u* ...')
+                u_star_finished = True
 
             # Update the parameter mu
             if iter % 3 == 0:
@@ -222,14 +225,14 @@ def prediction_step(model, training_data, prev_val, prev_val_valid, step):
             if iter % 100 == 0:
                 dloss_res_dp_u = grad(
                     lambda primal: torch.sum(
-                        compute_loss_res(model, primal, x_inner, y_inner, Rf_u_inner) ** 2
+                        compute_loss_res(model_u_star, primal, x_inner, y_inner, Rf_u_inner) ** 2
                     ),
                     argnums=0,
                 )(u_star_params)
 
                 dloss_bd_dp_u = grad(
                     lambda primal: torch.sum(
-                        compute_loss_bd(model, primal, x_bd, y_bd, Rf_u_bd) ** 2
+                        compute_loss_bd(model_u_star, primal, x_bd, y_bd, Rf_u_bd) ** 2
                     ),
                     argnums=0,
                 )(u_star_params)
@@ -255,11 +258,11 @@ def prediction_step(model, training_data, prev_val, prev_val_valid, step):
             # Compute the jacobi matrix
             jac_res_dict_v = vmap(
                 jacrev(compute_loss_res, argnums=(1)), in_dims=(None, None, 0, 0, 0), out_dims=0
-            )(model, v_star_params, x_inner, y_inner, Rf_v_inner)
+            )(model_v_star, v_star_params, x_inner, y_inner, Rf_v_inner)
 
             jac_bd_dict_v = vmap(
                 jacrev(compute_loss_bd, argnums=(1)), in_dims=(None, None, 0, 0, 0), out_dims=0
-            )(model, v_star_params, x_bd, y_bd, Rf_v_bd)
+            )(model_v_star, v_star_params, x_bd, y_bd, Rf_v_bd)
 
             # Stack the jacobian matrix
             jac_res_v = torch.hstack([v.view(x_inner.size(0), -1) for v in jac_res_dict_v.values()])
@@ -268,10 +271,10 @@ def prediction_step(model, training_data, prev_val, prev_val_valid, step):
             jac_bd_v *= torch.sqrt(beta_v / torch.tensor(x_bd.size(0)))
 
             # Compute the residual of the loss function
-            l_vec_res_v = compute_loss_res(model, v_star_params, x_inner, y_inner, Rf_v_inner)
-            l_vec_bd_v = compute_loss_bd(model, v_star_params, x_bd, y_bd, Rf_v_bd)
-            l_vec_res_v_valid = compute_loss_res(model, v_star_params, x_inner_v, y_inner_v, Rf_v_inner_valid)
-            l_vec_bd_v_valid = compute_loss_bd(model, v_star_params, x_bd_v, y_bd_v, Rf_v_bd_valid)
+            l_vec_res_v = compute_loss_res(model_v_star, v_star_params, x_inner, y_inner, Rf_v_inner)
+            l_vec_bd_v = compute_loss_bd(model_v_star, v_star_params, x_bd, y_bd, Rf_v_bd)
+            l_vec_res_v_valid = compute_loss_res(model_v_star, v_star_params, x_inner_v, y_inner_v, Rf_v_inner_valid)
+            l_vec_bd_v_valid = compute_loss_bd(model_v_star, v_star_params, x_bd_v, y_bd_v, Rf_v_bd_valid)
             l_vec_res_v *= torch.sqrt(alpha_v / torch.tensor(x_inner.size(0)))
             l_vec_bd_v *= torch.sqrt(beta_v / torch.tensor(x_bd.size(0)))
             l_vec_res_v_valid /= torch.sqrt(torch.tensor(x_inner_v.size(0)))
@@ -294,11 +297,10 @@ def prediction_step(model, training_data, prev_val, prev_val_valid, step):
             savedloss_v.append(loss_v.item())
             savedloss_v_valid.append(loss_v_valid.item())
 
-            print(f"iter: {iter}, loss_v: {loss_v.item():.2e}, mu_v: {mu_v:.1e}")
-
             # Stop the training if the loss function is converged
             if (iter == Niter - 1) or (loss_v < tol):
-                break
+                print('Successful training v* ...')
+                v_star_finished = True
 
             # Update the parameter mu
             if iter % 3 == 0:
@@ -311,14 +313,14 @@ def prediction_step(model, training_data, prev_val, prev_val_valid, step):
             if iter % 100 == 0:
                 dloss_res_dp_v = grad(
                     lambda primal: torch.sum(
-                        compute_loss_res(model, primal, x_inner, y_inner, Rf_v_inner) ** 2
+                        compute_loss_res(model_v_star, primal, x_inner, y_inner, Rf_v_inner) ** 2
                     ),
                     argnums=0,
                 )(v_star_params)
 
                 dloss_bd_dp_v = grad(
                     lambda primal: torch.sum(
-                        compute_loss_bd(model, primal, x_bd, y_bd, Rf_v_bd) ** 2
+                        compute_loss_bd(model_v_star, primal, x_bd, y_bd, Rf_v_bd) ** 2
                     ),
                     argnums=0,
                 )(v_star_params)
@@ -340,30 +342,35 @@ def prediction_step(model, training_data, prev_val, prev_val_valid, step):
                 beta_v = (1 - 0.1) * beta_v + 0.1 * beta_v_bar
                 print(f"alpha_v: {alpha_v:.2f}, beta_v: {beta_v:.2f}")
 
-        if u_star_finished is not True and v_star_finished is not True:
+        if u_star_finished is not True and v_star_finished is not True and iter % 5 == 0:
             print(
-                f"epoch = {iter}, "
+                f"iter = {iter}, "
                 + "".ljust(13 - len(str(f"iter = {iter}, ")))
-                + f"loss_u* = {loss_train_u_star[iter + total_iter_u_star]:.2e}, "
-                f"mu_u* = {mu_u:.1e}\n"
-                + "".ljust(13)
-                + f"loss_v* = {loss_train_v_star[iter + total_iter_v_star]:.2e}, "
+                + f"loss_u* = {loss_u:.2e}, "
+                f"mu_u* = {mu_u:.1e}\n" + "".ljust(13) + f"loss_v* = {loss_v:.2e}, "
                 f"mu_v* = {mu_v:.1e}"
             )
-        elif u_star_not_done is True and v_star_not_done is not True:
+        elif u_star_finished is not True and v_star_finished is True and iter % 5 == 0:
             print(
-                f"epoch = {epoch}, "
-                f"loss_u* = {loss_train_u_star[epoch + total_epoch_u_star]:.2e}, "
-                f"mu = {mu_u_star:.1e}"
+                f"iter = {iter}, "
+                f"loss_u* = {loss_u:.2e}, "
+                f"mu = {mu_u:.1e}"
             )
-        elif u_star_not_done is not True and v_star_not_done is True:
+        elif u_star_finished is True and v_star_finished is not True and iter % 5 == 0:
             print(
-                f"epoch = {epoch}, "
-                f"loss_v* = {loss_train_v_star[epoch + total_epoch_v_star]:.2e}, "
-                f"mu = {mu_v_star:.1e}"
+                f"iter = {iter}, "
+                f"loss_v* = {loss_v:.2e}, "
+                f"mu = {mu_v:.1e}"
             )
-        else:
+        if u_star_finished is True and v_star_finished is True:
             print('Successful training ...')
+            print(
+                f"iter = {iter}, "
+                + "".ljust(13 - len(str(f"iter = {iter}, ")))
+                + f"loss_u* = {loss_u:.2e}, "
+                f"mu_u* = {mu_u:.1e}\n" + "".ljust(13) + f"loss_v* = {loss_v:.2e}, "
+                f"mu_v* = {mu_v:.1e}"
+            )
             break
 
     # Plot the loss function
@@ -386,42 +393,177 @@ def prediction_step(model, training_data, prev_val, prev_val_valid, step):
     return u_star_params, v_star_params
 
 
+def projection_step(u_star_model, v_star_model, model_phi, training_data, 
+                    u_star_params, v_star_params):
+    """The projection step of the projection method"""
+    # Unpack the training data
+    x_inner, y_inner = training_data[0]
+    x_bd, y_bd = training_data[1]
+    x_inner_v, y_inner_v = training_data[2]
+    x_bd_v, y_bd_v = training_data[3]
+    nx, ny = training_data[4]
+    nx_v, ny_v = training_data[5]
+
+    # Define the parameters
+    phi_params = dict(model_phi.named_parameters())
+    # 10 times the parameters of phi_params
+    phi_params_flatten = nn.utils.parameters_to_vector(phi_params.values()) * 10
+    nn.utils.vector_to_parameters(phi_params_flatten, phi_params.values())
+
+    # Compute the right-hand side values
+    Rf_inner = (1.5 / Dt) * (
+        model_phi.predict_dx(u_star_model, u_star_params, x_inner, y_inner)
+        + model_phi.predict_dy(v_star_model, v_star_params, x_inner, y_inner)
+    )
+    Rf_inner_valid = (1.5 / Dt) * (
+        model_phi.predict_dx(u_star_model, u_star_params, x_inner_v, y_inner_v)
+        + model_phi.predict_dy(v_star_model, v_star_params, x_inner_v, y_inner_v)
+    )
+    Rf_bd = torch.zeros_like(x_bd)
+    Rf_bd_valid = torch.zeros_like(x_bd_v)
+
+    def compute_loss_res(model, params, x, y, Rf_inner):
+        """Compute the residual loss function."""
+        pred = (
+            model.predict_dxx(model, params, x, y) +
+            model.predict_dyy(model, params, x, y)
+        )
+        loss_res = pred - Rf_inner
+        return loss_res
+    
+    def compute_loss_bd(model, params, x, y, nx, ny, Rf_bd):
+        """Compute the boundary loss function."""
+        pred = (
+            model.predict_dx(model, params, x, y) * nx
+            + model.predict_dy(model, params, x, y) * ny
+        )
+        loss_bd = pred - Rf_bd
+        return loss_bd
+
+    # Start training
+    Niter = 1000
+    tol = 1.0e-10
+    mu_phi = 1.0e3
+    alpha = 1.0
+    beta = 1.0
+    savedloss_phi = []
+    savedloss_phi_valid = []
+
+    for iter in range(Niter):
+        # Compute the jacobi matrix
+        jac_res_dict = vmap(
+            jacrev(compute_loss_res, argnums=1),
+            in_dims=(None, None, 0, 0, 0),
+            out_dims=0,
+        )(model_phi, phi_params, x_inner, y_inner, Rf_inner)
+
+        jac_bd_dict = vmap(
+            jacrev(compute_loss_bd, argnums=1),
+            in_dims=(None, None, 0, 0, 0, 0, 0),
+            out_dims=0,
+        )(model_phi, phi_params, x_bd, y_bd, nx, ny, Rf_bd)
+
+        # Stack the jacobian matrix
+        jac_res = torch.hstack([v.view(x_inner.size(0), -1) for v in jac_res_dict.values()])
+        jac_bd = torch.hstack([v.view(x_bd.size(0), -1) for v in jac_bd_dict.values()])
+        jac_res *= torch.sqrt(alpha / torch.tensor(x_inner.size(0)))
+        jac_bd *= torch.sqrt(beta / torch.tensor(x_bd.size(0)))
+
+        # Compute the residual of the loss function
+        l_vec_res = compute_loss_res(model_phi, phi_params, x_inner, y_inner, Rf_inner)
+        l_vec_bd = compute_loss_bd(model_phi, phi_params, x_bd, y_bd, nx, ny, Rf_bd)
+        l_vec_res_valid = compute_loss_res(model_phi, phi_params, x_inner_v, y_inner_v, Rf_inner_valid)
+        l_vec_bd_valid = compute_loss_bd(model_phi, phi_params, x_bd_v, y_bd_v, nx_v, ny_v, Rf_bd_valid)
+        l_vec_res *= torch.sqrt(alpha / torch.tensor(x_inner.size(0)))
+        l_vec_bd *= torch.sqrt(beta / torch.tensor(x_bd.size(0)))
+        l_vec_res_valid /= torch.sqrt(torch.tensor(x_inner_v.size(0)))
+        l_vec_bd_valid /= torch.sqrt(torch.tensor(x_bd_v.size(0)))
+
+        # Cat the Jacobian matrix and the loss function
+        jacobian = torch.vstack((jac_res, jac_bd))
+        l_vec = torch.vstack((l_vec_res, l_vec_bd))
+
+        # Solve the non-linear system
+        p_phi = cholesky(jacobian, l_vec, mu_phi, device)
+        # Update the parameters
+        phi_params_flatten = nn.utils.parameters_to_vector(phi_params.values())
+        phi_params_flatten += p_phi
+        nn.utils.vector_to_parameters(phi_params_flatten, phi_params.values())
+
+        # Compute the loss function
+        loss_phi = torch.sum(l_vec_res**2) + torch.sum(l_vec_bd**2)
+        loss_phi_valid = torch.sum(l_vec_res_valid**2) + torch.sum(l_vec_bd_valid**2)
+        savedloss_phi.append(loss_phi.item())
+        savedloss_phi_valid.append(loss_phi_valid.item())
+
+        if iter % 5 == 0:
+            print(f"iter = {iter}, loss_phi = {loss_phi.item():.2e}, mu_phi = {mu_phi:.1e}")
+
+        # Stop the training if the loss function is converged
+        if (iter == Niter - 1) or (loss_phi < tol):
+            print('Successful training phi ...')
+            print(f"iter = {iter}, loss_phi = {loss_phi.item():.2e}, mu_phi = {mu_phi:.1e}")
+            break
+            
+        # Update the parameter mu
+        if iter % 3 == 0:
+            if savedloss_phi[iter] > savedloss_phi[iter - 1]:
+                mu_phi = min(2 * mu_phi, 1e8)
+            else:
+                mu_phi = max(mu_phi / 5, 1e-10)
+
+    # Plot the loss function
+    fig, ax = plt.subplots()
+    ax.semilogy(savedloss_phi, "k-", label="training loss")
+    ax.semilogy(savedloss_phi_valid, "r--", label="test loss")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Loss")
+    ax.legend()
+    plt.show()
+
+    return phi_params
+        
+
 def main():
     # Define the neural network
-    model = PinnModel([2, 20, 20, 1]).to(device)
-    params = dict(model.named_parameters())
-    print(model)
+    u_star_model = PinnModel([2, 20, 20, 1]).to(device)
+    v_star_model = PinnModel([2, 20, 20, 1]).to(device)
+    phi_model = PinnModel([2, 20, 20, 20, 20, 1]).to(device)
+    params = dict(u_star_model.named_parameters())
+    print(u_star_model)
 
-    total_params = model.num_total_params()
+    total_params = u_star_model.num_total_params()
     print(f"Total number of parameters: {total_params}")
 
     # Define the training data
     mesh = CreateMesh()
-    x_inner, y_inner = mesh.inner_points(100)
-    x_bd, y_bd = mesh.boundary_points(100)
+    x_inner_u, y_inner_u = mesh.inner_points(500)
+    x_inner_phi, y_inner_phi = mesh.inner_points(2000)
     x_inner_valid, y_inner_valid = mesh.inner_points(10000)
+    x_bd_u, y_bd_u = mesh.boundary_points(50)
+    x_bd_phi, y_bd_phi = mesh.boundary_points(100)
     x_bd_valid, y_bd_valid = mesh.boundary_points(1000)
     # Compute the boundary normal vector
-    nx, ny = mesh.normal_vector(x_bd, y_bd)
+    nx, ny = mesh.normal_vector(x_bd_phi, y_bd_phi)
+    nx_valid, ny_valid = mesh.normal_vector(x_bd_valid, y_bd_valid)
 
     # Move the data to the device
-    x_inner, y_inner = x_inner.to(device), y_inner.to(device)
-    x_bd, y_bd = x_bd.to(device), y_bd.to(device)
+    x_inner_u, y_inner = x_inner_u.to(device), y_inner_u.to(device)
+    x_bd_u, y_bd_u = x_bd_u.to(device), y_bd_u.to(device)
+    x_inner_phi, y_inner_phi = x_inner_phi.to(device), y_inner_phi.to(device)
+    x_bd_phi, y_bd_phi = x_bd_phi.to(device), y_bd_phi.to(device)
     x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
     x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
     nx, ny = nx.to(device), ny.to(device)
+    nx_valid, ny_valid = nx_valid.to(device), ny_valid.to(device)
 
     # Pack the training data
-    training_data = (
-        (x_inner, y_inner),
-        (x_bd, y_bd),
+    u_training_data = (
+        (x_inner_u, y_inner_u),
+        (x_bd_u, y_bd_u),
         (x_inner_valid, y_inner_valid),
         (x_bd_valid, y_bd_valid),
-        (nx, ny),
     )
-
-    u = functional_call(model, params, (x_inner, y_inner))
-    print(f"Predicted u: {u.size()}")
 
     # Initialize the previous value
     prev_value = dict()
@@ -485,26 +627,42 @@ def main():
     
     # Predict the intermediate velocity field (u*, v*)
     u_star_params, v_star_params = prediction_step(
-        model, training_data, prev_value, prev_value_valid, 2
+        u_star_model, v_star_model, training_data, prev_value, prev_value_valid, 2
     )
+    u_star_model.load_state_dict(u_star_params)
+    v_star_model.load_state_dict(v_star_params)
+
+    # Project the intermediate velocity field onto the space of divergence-free fields
+    phi_params = projection_step(
+        u_star_model, v_star_model, phi_model, training_data, u_star_params, v_star_params
+    )
+    phi_model.load_state_dict(phi_params)
 
     # Plot the predicted velocity field
     x_plot, y_plot = torch.meshgrid(
         torch.linspace(0, 1, 100), torch.linspace(0, 1, 100), indexing="xy"
     )
     x_plot, y_plot = x_plot.reshape(-1, 1).to(device), y_plot.reshape(-1, 1).to(device)
-    u_star = model.predict(model, u_star_params, x_plot, y_plot).cpu().detach().numpy()
-    v_star = model.predict(model, v_star_params, x_plot, y_plot).cpu().detach().numpy()
+    u_star = u_star_model.predict(u_star_model, u_star_params, x_plot, y_plot).cpu().detach().numpy()
+    v_star = v_star_model.predict(v_star_model, v_star_params, x_plot, y_plot).cpu().detach().numpy()
+    phi = phi_model.predict(phi_model, phi_params, x_plot, y_plot).cpu().detach().numpy()
 
-    fig, axs = plt.subplots(row=1, col=2, subplot_kw={"projection": "3d"})
+    fig, axs = plt.subplots(nrows=1, ncols=3, subplot_kw={"projection": "3d"})
     sca1 = axs[0].scatter(x_plot.cpu(), y_plot.cpu(), u_star, c=u_star, cmap="viridis")
     sca2 = axs[1].scatter(x_plot.cpu(), y_plot.cpu(), v_star, c=v_star, cmap="viridis")
-    fig.colorbar(sca1, ax=axs[0])
-    fig.colorbar(sca2, ax=axs[1])
+    sca3 = axs[2].scatter(x_plot.cpu(), y_plot.cpu(), phi, c=phi, cmap="viridis")
+    fig.colorbar(sca1, ax=axs[0], shrink=0.5, aspect=10, pad=0.1)
+    fig.colorbar(sca2, ax=axs[1], shrink=0.5, aspect=10, pad=0.1)
+    fig.colorbar(sca3, ax=axs[2], shrink=0.5, aspect=10, pad=0.1)
     axs[0].set_xlabel("x")
     axs[1].set_xlabel("x")
+    axs[2].set_xlabel("x")
     axs[0].set_ylabel("y")
     axs[1].set_ylabel("y")
+    axs[2].set_ylabel("y")
+    axs[0].set_title("Predicted u*")
+    axs[1].set_title("Predicted v*")
+    axs[2].set_title("Predicted phi")
     plt.show()
 
 
