@@ -71,7 +71,7 @@ class PinnModel(nn.Module):
         return sum(p.numel() for p in self.parameters())
     
 
-def prediction_step(model, training_data, prev_val, prev_val_v, step):
+def prediction_step(model, training_data, prev_val, prev_val_valid, step):
     """The prediction step of the projection method"""
     # Unpack the training data
     x_inner, y_inner = training_data[0]
@@ -88,35 +88,43 @@ def prediction_step(model, training_data, prev_val, prev_val_v, step):
     Rf_u_inner = (
         4 * prev_val["u1"]
         - prev_val["u0"]
-        - 2 * (2 * Dt) * (prev_val["u1"] * prev_val["du1dx"] + prev_val["v1"] * prev_val["du1dy"])
-        + (2 * Dt) * (prev_val["u0"] * prev_val["du0dx"] + prev_val["v0"] * prev_val["du0dy"])
+        - 2 * (2 * Dt) * (prev_val["u1"] * prev_val["du1dx"] + 
+                          prev_val["v1"] * prev_val["du1dy"])
+        + (2 * Dt) * (prev_val["u0"] * prev_val["du0dx"] + 
+                      prev_val["v0"] * prev_val["du0dy"])
         - (2 * Dt) * (prev_val["dp1dx"])
     )
     Rf_v_inner = (
         4 * prev_val["v1"]
         - prev_val["v0"]
-        - 2 * (2 * Dt) * (prev_val["u1"] * prev_val["dv1dx"] + prev_val["v1"] * prev_val["dv1dy"])
-        + (2 * Dt) * (prev_val["u0"] * prev_val["dv0dx"] + prev_val["v0"] * prev_val["dv0dy"])
+        - 2 * (2 * Dt) * (prev_val["u1"] * prev_val["dv1dx"] + 
+                          prev_val["v1"] * prev_val["dv1dy"])
+        + (2 * Dt) * (prev_val["u0"] * prev_val["dv0dx"] + 
+                      prev_val["v0"] * prev_val["dv0dy"])
         - (2 * Dt) * (prev_val["dp1dy"])
     )
-    Rf_u_inner_v = (
-        4 * prev_val_v["u1"]
-        - prev_val_v["u0"]
-        - 2 * (2 * Dt) * (prev_val_v["u1"] * prev_val_v["du1dx"] + prev_val_v["v1"] * prev_val_v["du1dy"])
-        + (2 * Dt) * (prev_val_v["u0"] * prev_val_v["du0dx"] + prev_val_v["v0"] * prev_val_v["du0dy"])
-        - (2 * Dt) * (prev_val_v["dp1dx"])
+    Rf_u_inner_valid = (
+        4 * prev_val_valid["u1"]
+        - prev_val_valid["u0"]
+        - 2 * (2 * Dt) * (prev_val_valid["u1"] * prev_val_valid["du1dx"] + 
+                          prev_val_valid["v1"] * prev_val_valid["du1dy"])
+        + (2 * Dt) * (prev_val_valid["u0"] * prev_val_valid["du0dx"] + 
+                      prev_val_valid["v0"] * prev_val_valid["du0dy"])
+        - (2 * Dt) * (prev_val_valid["dp1dx"])
     )
-    Rf_v_inner_v = (
-        4 * prev_val_v["v1"]
-        - prev_val_v["v0"]
-        - 2 * (2 * Dt) * (prev_val_v["u1"] * prev_val_v["dv1dx"] + prev_val_v["v1"] * prev_val_v["dv1dy"])
-        + (2 * Dt) * (prev_val_v["u0"] * prev_val_v["dv0dx"] + prev_val_v["v0"] * prev_val_v["dv0dy"])
-        - (2 * Dt) * (prev_val_v["dp1dy"])
+    Rf_v_inner_valid = (
+        4 * prev_val_valid["v1"]
+        - prev_val_valid["v0"]
+        - 2 * (2 * Dt) * (prev_val_valid["u1"] * prev_val_valid["dv1dx"] + 
+                          prev_val_valid["v1"] * prev_val_valid["dv1dy"])
+        + (2 * Dt) * (prev_val_valid["u0"] * prev_val_valid["dv0dx"] + 
+                      prev_val_valid["v0"] * prev_val_valid["dv0dy"])
+        - (2 * Dt) * (prev_val_valid["dp1dy"])
     )
     Rf_u_bd = exact_sol(x_bd, y_bd, step * Dt, Re, "u")
     Rf_v_bd = exact_sol(x_bd, y_bd, step * Dt, Re, "v")
-    Rf_u_bd_v = exact_sol(x_bd_v, y_bd_v, step * Dt, Re, "u")
-    Rf_v_bd_v = exact_sol(x_bd_v, y_bd_v, step * Dt, Re, "v")
+    Rf_u_bd_valid = exact_sol(x_bd_v, y_bd_v, step * Dt, Re, "u")
+    Rf_v_bd_valid = exact_sol(x_bd_v, y_bd_v, step * Dt, Re, "v")
 
 
     def compute_loss_res(model, params, x, y, Rf_inner):
@@ -140,26 +148,243 @@ def prediction_step(model, training_data, prev_val, prev_val_v, step):
     # Start training
     Niter = 1000
     tol = 1.0e-10
-    mu = 1.0e5
-    savedloss = []
-    saveloss_vaild = []
-    alpha = 1.0
-    beta = 1.0
+    mu_u = 1.0e3
+    mu_v = 1.0e3
+    alpha_u = 1.0
+    alpha_v = 1.0
+    beta_u = 1.0
+    beta_v = 1.0
+    savedloss_u = []
+    savedloss_u_valid = []
+    savedloss_v = []
+    savedloss_v_valid = []
+    u_star_finished = False
+    v_star_finished = False
 
     for iter in range(Niter):
-        # Compute the jacobi matrix
-        jac_res_dict = vmap(
-            jacrev(compute_loss_res, argnums=(1)), in_dims=(None, 0, 0, 0), out_dims=0
-        )(model, u_star_params, x_inner, y_inner, Rf_u_inner)
+        if u_star_finished is not True:
+            # Compute the jacobi matrix
+            jac_res_dict_u = vmap(
+                jacrev(compute_loss_res, argnums=(1)), in_dims=(None, None, 0, 0, 0), out_dims=0
+            )(model, u_star_params, x_inner, y_inner, Rf_u_inner)
 
-        jac_bd_dict = vmap(
-            jacrev(compute_loss_bd, argnums=(1)), in_dims=(None, 0, 0, 0), out_dims=0
-        )(model, u_star_params, x_bd, y_bd, Rf_u_bd)
+            jac_bd_dict_u = vmap(
+                jacrev(compute_loss_bd, argnums=(1)), in_dims=(None, None, 0, 0, 0), out_dims=0
+            )(model, u_star_params, x_bd, y_bd, Rf_u_bd)
 
+            # Stack the jacobian matrix
+            jac_res_u = torch.hstack([v.view(x_inner.size(0), -1) for v in jac_res_dict_u.values()])
+            jac_bd_u = torch.hstack([v.view(x_bd.size(0), -1) for v in jac_bd_dict_u.values()])
+            jac_res_u *= torch.sqrt(alpha_u / torch.tensor(x_inner.size(0)))
+            jac_bd_u *= torch.sqrt(beta_u / torch.tensor(x_bd.size(0)))
 
-# def update_previous_value(prev_value, u, v, p):
+            # Compute the residual of the loss function
+            l_vec_res_u = compute_loss_res(model, u_star_params, x_inner, y_inner, Rf_u_inner)
+            l_vec_bd_u = compute_loss_bd(model, u_star_params, x_bd, y_bd, Rf_u_bd)
+            l_vec_res_u_valid = compute_loss_res(model, u_star_params, x_inner_v, y_inner_v, Rf_u_inner_valid)
+            l_vec_bd_u_valid = compute_loss_bd(model, u_star_params, x_bd_v, y_bd_v, Rf_u_bd_valid)
+            l_vec_res_u *= torch.sqrt(alpha_u / torch.tensor(x_inner.size(0)))
+            l_vec_bd_u *= torch.sqrt(beta_u / torch.tensor(x_bd.size(0)))
+            l_vec_res_u_valid /= torch.sqrt(torch.tensor(x_inner_v.size(0)))
+            l_vec_bd_u_valid /= torch.sqrt(torch.tensor(x_bd_v.size(0)))
 
-    
+            # Cat the Jacobian matrix and the loss function
+            jacobian_u = torch.vstack((jac_res_u, jac_bd_u))
+            l_vec_u = torch.vstack((l_vec_res_u, l_vec_bd_u))
+
+            # Solve the non-linear system
+            p_u = cholesky(jacobian_u, l_vec_u, mu_u, device)
+            # Update the parameters
+            u_params_flatten = nn.utils.parameters_to_vector(u_star_params.values())
+            u_params_flatten += p_u
+            nn.utils.vector_to_parameters(u_params_flatten, u_star_params.values())
+
+            # Compute the loss function
+            loss_u = torch.sum(l_vec_res_u**2) + torch.sum(l_vec_bd_u**2)
+            loss_u_valid = torch.sum(l_vec_res_u_valid**2) + torch.sum(l_vec_bd_u_valid**2)
+            savedloss_u.append(loss_u.item())
+            savedloss_u_valid.append(loss_u_valid.item())
+
+            print(f"iter: {iter}, loss_u: {loss_u.item():.2e}, mu_u: {mu_u:.1e}")
+
+            # Stop the training if the loss function is converged
+            if (iter == Niter - 1) or (loss_u < tol):
+                break
+
+            # Update the parameter mu
+            if iter % 3 == 0:
+                if savedloss_u[iter] > savedloss_u[iter - 1]:
+                    mu_u = min(2 * mu_u, 1e8)
+                else:
+                    mu_u = max(mu_u / 5, 1e-10)
+
+            # Compute alpha_bar and beta_bar, then update alpha and beta
+            if iter % 100 == 0:
+                dloss_res_dp_u = grad(
+                    lambda primal: torch.sum(
+                        compute_loss_res(model, primal, x_inner, y_inner, Rf_u_inner) ** 2
+                    ),
+                    argnums=0,
+                )(u_star_params)
+
+                dloss_bd_dp_u = grad(
+                    lambda primal: torch.sum(
+                        compute_loss_bd(model, primal, x_bd, y_bd, Rf_u_bd) ** 2
+                    ),
+                    argnums=0,
+                )(u_star_params)
+
+                dloss_res_dp_flatten = nn.utils.parameters_to_vector(
+                    dloss_res_dp_u.values()
+                ) / torch.tensor(x_inner.size(0))
+                dloss_res_dp_norm = torch.linalg.norm(dloss_res_dp_flatten)
+
+                dloss_bd_dp_flatten = nn.utils.parameters_to_vector(
+                    dloss_bd_dp_u.values()
+                ) / torch.tensor(x_bd.size(0))
+                dloss_bd_dp_norm = torch.linalg.norm(dloss_bd_dp_flatten)
+
+                alpha_u_bar = (dloss_res_dp_norm + dloss_bd_dp_norm) / dloss_res_dp_norm
+                beta_u_bar = (dloss_res_dp_norm + dloss_bd_dp_norm) / dloss_bd_dp_norm
+
+                alpha_u = (1 - 0.1) * alpha_u + 0.1 * alpha_u_bar
+                beta_u = (1 - 0.1) * beta_u + 0.1 * beta_u_bar
+                print(f"alpha_u: {alpha_u:.2f}, beta_u: {beta_u:.2f}")
+
+        if v_star_finished is not True:
+            # Compute the jacobi matrix
+            jac_res_dict_v = vmap(
+                jacrev(compute_loss_res, argnums=(1)), in_dims=(None, None, 0, 0, 0), out_dims=0
+            )(model, v_star_params, x_inner, y_inner, Rf_v_inner)
+
+            jac_bd_dict_v = vmap(
+                jacrev(compute_loss_bd, argnums=(1)), in_dims=(None, None, 0, 0, 0), out_dims=0
+            )(model, v_star_params, x_bd, y_bd, Rf_v_bd)
+
+            # Stack the jacobian matrix
+            jac_res_v = torch.hstack([v.view(x_inner.size(0), -1) for v in jac_res_dict_v.values()])
+            jac_bd_v = torch.hstack([v.view(x_bd.size(0), -1) for v in jac_bd_dict_v.values()])
+            jac_res_v *= torch.sqrt(alpha_v / torch.tensor(x_inner.size(0)))
+            jac_bd_v *= torch.sqrt(beta_v / torch.tensor(x_bd.size(0)))
+
+            # Compute the residual of the loss function
+            l_vec_res_v = compute_loss_res(model, v_star_params, x_inner, y_inner, Rf_v_inner)
+            l_vec_bd_v = compute_loss_bd(model, v_star_params, x_bd, y_bd, Rf_v_bd)
+            l_vec_res_v_valid = compute_loss_res(model, v_star_params, x_inner_v, y_inner_v, Rf_v_inner_valid)
+            l_vec_bd_v_valid = compute_loss_bd(model, v_star_params, x_bd_v, y_bd_v, Rf_v_bd_valid)
+            l_vec_res_v *= torch.sqrt(alpha_v / torch.tensor(x_inner.size(0)))
+            l_vec_bd_v *= torch.sqrt(beta_v / torch.tensor(x_bd.size(0)))
+            l_vec_res_v_valid /= torch.sqrt(torch.tensor(x_inner_v.size(0)))
+            l_vec_bd_v_valid /= torch.sqrt(torch.tensor(x_bd_v.size(0)))
+
+            # Cat the Jacobian matrix and the loss function
+            jacobian_v = torch.vstack((jac_res_v, jac_bd_v))
+            l_vec_v = torch.vstack((l_vec_res_v, l_vec_bd_v))
+
+            # Solve the non-linear system
+            p_v = cholesky(jacobian_v, l_vec_v, mu_v, device)
+            # Update the parameters
+            v_params_flatten = nn.utils.parameters_to_vector(v_star_params.values())
+            v_params_flatten += p_v
+            nn.utils.vector_to_parameters(v_params_flatten, v_star_params.values())
+
+            # Compute the loss function
+            loss_v = torch.sum(l_vec_res_v**2) + torch.sum(l_vec_bd_v**2)
+            loss_v_valid = torch.sum(l_vec_res_v_valid**2) + torch.sum(l_vec_bd_v_valid**2)
+            savedloss_v.append(loss_v.item())
+            savedloss_v_valid.append(loss_v_valid.item())
+
+            print(f"iter: {iter}, loss_v: {loss_v.item():.2e}, mu_v: {mu_v:.1e}")
+
+            # Stop the training if the loss function is converged
+            if (iter == Niter - 1) or (loss_v < tol):
+                break
+
+            # Update the parameter mu
+            if iter % 3 == 0:
+                if savedloss_v[iter] > savedloss_v[iter - 1]:
+                    mu_v = min(2 * mu_v, 1e8)
+                else:
+                    mu_v = max(mu_v / 5, 1e-10)
+
+            # Compute alpha_bar and beta_bar, then update alpha and beta
+            if iter % 100 == 0:
+                dloss_res_dp_v = grad(
+                    lambda primal: torch.sum(
+                        compute_loss_res(model, primal, x_inner, y_inner, Rf_v_inner) ** 2
+                    ),
+                    argnums=0,
+                )(v_star_params)
+
+                dloss_bd_dp_v = grad(
+                    lambda primal: torch.sum(
+                        compute_loss_bd(model, primal, x_bd, y_bd, Rf_v_bd) ** 2
+                    ),
+                    argnums=0,
+                )(v_star_params)
+
+                dloss_res_dp_flatten = nn.utils.parameters_to_vector(
+                    dloss_res_dp_v.values()
+                ) / torch.tensor(x_inner.size(0))
+                dloss_res_dp_norm = torch.linalg.norm(dloss_res_dp_flatten)
+
+                dloss_bd_dp_flatten = nn.utils.parameters_to_vector(
+                    dloss_bd_dp_v.values()
+                ) / torch.tensor(x_bd.size(0))
+                dloss_bd_dp_norm = torch.linalg.norm(dloss_bd_dp_flatten)
+
+                alpha_v_bar = (dloss_res_dp_norm + dloss_bd_dp_norm) / dloss_res_dp_norm
+                beta_v_bar = (dloss_res_dp_norm + dloss_bd_dp_norm) / dloss_bd_dp_norm
+
+                alpha_v = (1 - 0.1) * alpha_v + 0.1 * alpha_v_bar
+                beta_v = (1 - 0.1) * beta_v + 0.1 * beta_v_bar
+                print(f"alpha_v: {alpha_v:.2f}, beta_v: {beta_v:.2f}")
+
+        if u_star_finished is not True and v_star_finished is not True:
+            print(
+                f"epoch = {iter}, "
+                + "".ljust(13 - len(str(f"iter = {iter}, ")))
+                + f"loss_u* = {loss_train_u_star[iter + total_iter_u_star]:.2e}, "
+                f"mu_u* = {mu_u:.1e}\n"
+                + "".ljust(13)
+                + f"loss_v* = {loss_train_v_star[iter + total_iter_v_star]:.2e}, "
+                f"mu_v* = {mu_v:.1e}"
+            )
+        elif u_star_not_done is True and v_star_not_done is not True:
+            print(
+                f"epoch = {epoch}, "
+                f"loss_u* = {loss_train_u_star[epoch + total_epoch_u_star]:.2e}, "
+                f"mu = {mu_u_star:.1e}"
+            )
+        elif u_star_not_done is not True and v_star_not_done is True:
+            print(
+                f"epoch = {epoch}, "
+                f"loss_v* = {loss_train_v_star[epoch + total_epoch_v_star]:.2e}, "
+                f"mu = {mu_v_star:.1e}"
+            )
+        else:
+            print('Successful training ...')
+            break
+
+    # Plot the loss function
+    fig, ax = plt.subplots()
+    ax.semilogy(savedloss_u, "k-", label="training loss")
+    ax.semilogy(savedloss_u_valid, "r--", label="test loss")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Loss")
+    ax.legend()
+    plt.show()
+
+    fig, ax = plt.subplots()
+    ax.semilogy(savedloss_v, "k-", label="training loss")
+    ax.semilogy(savedloss_v_valid, "r--", label="test loss")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Loss")
+    ax.legend()
+    plt.show()
+
+    return u_star_params, v_star_params
+
 
 def main():
     # Define the neural network
@@ -171,26 +396,27 @@ def main():
     print(f"Total number of parameters: {total_params}")
 
     # Define the training data
-    x_inner, y_inner = CreateMesh().inner_points(100)
-    x_bd, y_bd = CreateMesh().boundary_points(100)
-    x_inner_v, y_inner_v = CreateMesh().inner_points(10000)
-    x_bd_v, y_bd_v = CreateMesh().boundary_points(1000)
+    mesh = CreateMesh()
+    x_inner, y_inner = mesh.inner_points(100)
+    x_bd, y_bd = mesh.boundary_points(100)
+    x_inner_valid, y_inner_valid = mesh.inner_points(10000)
+    x_bd_valid, y_bd_valid = mesh.boundary_points(1000)
     # Compute the boundary normal vector
-    nx, ny = CreateMesh().normal_vector(x_bd, y_bd)
+    nx, ny = mesh.normal_vector(x_bd, y_bd)
 
     # Move the data to the device
     x_inner, y_inner = x_inner.to(device), y_inner.to(device)
     x_bd, y_bd = x_bd.to(device), y_bd.to(device)
-    x_inner_v, y_inner_v = x_inner_v.to(device), y_inner_v.to(device)
-    x_bd_v, y_bd_v = x_bd_v.to(device), y_bd_v.to(device)
+    x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
+    x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
     nx, ny = nx.to(device), ny.to(device)
 
     # Pack the training data
     training_data = (
         (x_inner, y_inner),
         (x_bd, y_bd),
-        (x_inner_v, y_inner_v),
-        (x_bd_v, y_bd_v),
+        (x_inner_valid, y_inner_valid),
+        (x_bd_valid, y_bd_valid),
         (nx, ny),
     )
 
@@ -224,43 +450,62 @@ def main():
         grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
     )(x_inner.reshape(-1), y_inner.reshape(-1), 1.0 * Dt, Re, "p")
 
-    prev_value_v = dict()
-    prev_value_v["u0"] = exact_sol(x_inner_v, y_inner_v, 0.0 * Dt, Re, "u")
-    prev_value_v["v0"] = exact_sol(x_inner_v, y_inner_v, 0.0 * Dt, Re, "v")
-    prev_value_v["p0"] = exact_sol(x_inner_v, y_inner_v, 0.0 * Dt, Re, "p")
-    prev_value_v["u1"] = exact_sol(x_inner_v, y_inner_v, 1.0 * Dt, Re, "u")
-    prev_value_v["v1"] = exact_sol(x_inner_v, y_inner_v, 1.0 * Dt, Re, "v")
-    prev_value_v["p1"] = exact_sol(x_inner_v, y_inner_v, 1.0 * Dt, Re, "p")
-    prev_value_v["du0dx"], prev_value_v["du0dy"] = vmap(
+    prev_value_valid = dict()
+    prev_value_valid["u0"] = exact_sol(x_inner_valid, y_inner_valid, 0.0 * Dt, Re, "u")
+    prev_value_valid["v0"] = exact_sol(x_inner_valid, y_inner_valid, 0.0 * Dt, Re, "v")
+    prev_value_valid["p0"] = exact_sol(x_inner_valid, y_inner_valid, 0.0 * Dt, Re, "p")
+    prev_value_valid["u1"] = exact_sol(x_inner_valid, y_inner_valid, 1.0 * Dt, Re, "u")
+    prev_value_valid["v1"] = exact_sol(x_inner_valid, y_inner_valid, 1.0 * Dt, Re, "v")
+    prev_value_valid["p1"] = exact_sol(x_inner_valid, y_inner_valid, 1.0 * Dt, Re, "p")
+    prev_value_valid["du0dx"], prev_value_valid["du0dy"] = vmap(
         grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner_v.reshape(-1), y_inner_v.reshape(-1), 0.0 * Dt, Re, "u")
-    prev_value_v["dv0dx"], prev_value_v["dv0dy"] = vmap(
+    )(x_inner_valid.reshape(-1), y_inner_valid.reshape(-1), 0.0 * Dt, Re, "u")
+    prev_value_valid["dv0dx"], prev_value_valid["dv0dy"] = vmap(
         grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner_v.reshape(-1), y_inner_v.reshape(-1), 0.0 * Dt, Re, "v")
-    prev_value_v["du1dx"], prev_value_v["du1dy"] = vmap(
+    )(x_inner_valid.reshape(-1), y_inner_valid.reshape(-1), 0.0 * Dt, Re, "v")
+    prev_value_valid["du1dx"], prev_value_valid["du1dy"] = vmap(
         grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner_v.reshape(-1), y_inner_v.reshape(-1), 1.0 * Dt, Re, "u")
-    prev_value_v["dv1dx"], prev_value_v["dv1dy"] = vmap(
+    )(x_inner_valid.reshape(-1), y_inner_valid.reshape(-1), 1.0 * Dt, Re, "u")
+    prev_value_valid["dv1dx"], prev_value_valid["dv1dy"] = vmap(
         grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner_v.reshape(-1), y_inner_v.reshape(-1), 1.0 * Dt, Re, "v")
-    prev_value_v["dp0dx"], prev_value_v["dp0dy"] = vmap(
+    )(x_inner_valid.reshape(-1), y_inner_valid.reshape(-1), 1.0 * Dt, Re, "v")
+    prev_value_valid["dp0dx"], prev_value_valid["dp0dy"] = vmap(
         grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner_v.reshape(-1), y_inner_v.reshape(-1), 0.0 * Dt, Re, "p")
-    prev_value_v["dp1dx"], prev_value_v["dp1dy"] = vmap(
+    )(x_inner_valid.reshape(-1), y_inner_valid.reshape(-1), 0.0 * Dt, Re, "p")
+    prev_value_valid["dp1dx"], prev_value_valid["dp1dy"] = vmap(
         grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner_v.reshape(-1), y_inner_v.reshape(-1), 1.0 * Dt, Re, "p")
+    )(x_inner_valid.reshape(-1), y_inner_valid.reshape(-1), 1.0 * Dt, Re, "p")
 
     # reshape the values to (n, 1)
-    for key, key_v in iter(zip(prev_value, prev_value_v)):
+    for key, key_v in iter(zip(prev_value, prev_value_valid)):
         prev_value[key] = prev_value[key].reshape(-1, 1)
-        prev_value_v[key_v] = prev_value_v[key_v].reshape(-1, 1)
+        prev_value_valid[key_v] = prev_value_valid[key_v].reshape(-1, 1)
         # print(f'prev_value["{key}"]: {prev_value[key].size()}')
-        # print(f'prev_value_v["{key_v}"]: {prev_value_v[key_v].size()}')
+        # print(f'prev_value_valid["{key_v}"]: {prev_value_valid[key_v].size()}')
     
     # Predict the intermediate velocity field (u*, v*)
-    prediction_step(model, training_data, prev_value, prev_value_v)
+    u_star_params, v_star_params = prediction_step(
+        model, training_data, prev_value, prev_value_valid, 2
+    )
 
-    
+    # Plot the predicted velocity field
+    x_plot, y_plot = torch.meshgrid(
+        torch.linspace(0, 1, 100), torch.linspace(0, 1, 100), indexing="xy"
+    )
+    x_plot, y_plot = x_plot.reshape(-1, 1).to(device), y_plot.reshape(-1, 1).to(device)
+    u_star = model.predict(model, u_star_params, x_plot, y_plot).cpu().detach().numpy()
+    v_star = model.predict(model, v_star_params, x_plot, y_plot).cpu().detach().numpy()
+
+    fig, axs = plt.subplots(row=1, col=2, subplot_kw={"projection": "3d"})
+    sca1 = axs[0].scatter(x_plot.cpu(), y_plot.cpu(), u_star, c=u_star, cmap="viridis")
+    sca2 = axs[1].scatter(x_plot.cpu(), y_plot.cpu(), v_star, c=v_star, cmap="viridis")
+    fig.colorbar(sca1, ax=axs[0])
+    fig.colorbar(sca2, ax=axs[1])
+    axs[0].set_xlabel("x")
+    axs[1].set_xlabel("x")
+    axs[0].set_ylabel("y")
+    axs[1].set_ylabel("y")
+    plt.show()
 
 
 if __name__ == "__main__":
