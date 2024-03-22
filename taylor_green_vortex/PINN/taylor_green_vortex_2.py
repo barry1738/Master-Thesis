@@ -151,7 +151,7 @@ def prediction_step(model_u_star, model_v_star, training_data, prev_val, prev_va
     
     # Start training
     Niter = 1000
-    tol = 1.0e-10
+    tol = 1.0e-9
     mu_u = 1.0e3
     mu_v = 1.0e3
     alpha_u = 1.0
@@ -393,16 +393,17 @@ def prediction_step(model_u_star, model_v_star, training_data, prev_val, prev_va
     return u_star_params, v_star_params
 
 
-def projection_step(u_star_model, v_star_model, model_phi, training_data, 
-                    u_star_params, v_star_params):
+def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star_params):
     """The projection step of the projection method"""
-    # Unpack the training data
-    x_inner, y_inner = training_data[0]
-    x_bd, y_bd = training_data[1]
-    x_inner_v, y_inner_v = training_data[2]
-    x_bd_v, y_bd_v = training_data[3]
-    nx, ny = training_data[4]
-    nx_v, ny_v = training_data[5]
+
+    # Create the validation data
+    mesh = CreateMesh()
+    x_inner_v, y_inner_v = mesh.inner_points(10000)
+    x_bd_v, y_bd_v = mesh.boundary_points(1000)
+    nx_v, ny_v = mesh.normal_vector(x_bd_v, y_bd_v)
+    x_inner_v, y_inner_v = x_inner_v.to(device), y_inner_v.to(device)
+    x_bd_v, y_bd_v = x_bd_v.to(device), y_bd_v.to(device)
+    nx_v, ny_v = nx_v.to(device), ny_v.to(device)
 
     # Define the parameters
     phi_params = dict(model_phi.named_parameters())
@@ -410,16 +411,11 @@ def projection_step(u_star_model, v_star_model, model_phi, training_data,
     phi_params_flatten = nn.utils.parameters_to_vector(phi_params.values()) * 10
     nn.utils.vector_to_parameters(phi_params_flatten, phi_params.values())
 
-    # Compute the right-hand side values
-    Rf_inner = (1.5 / Dt) * (
-        model_phi.predict_dx(u_star_model, u_star_params, x_inner, y_inner)
-        + model_phi.predict_dy(v_star_model, v_star_params, x_inner, y_inner)
-    )
+    # Compute the validate right-hand side values
     Rf_inner_valid = (1.5 / Dt) * (
         model_phi.predict_dx(u_star_model, u_star_params, x_inner_v, y_inner_v)
         + model_phi.predict_dy(v_star_model, v_star_params, x_inner_v, y_inner_v)
     )
-    Rf_bd = torch.zeros_like(x_bd)
     Rf_bd_valid = torch.zeros_like(x_bd_v)
 
     def compute_loss_res(model, params, x, y, Rf_inner):
@@ -442,94 +438,112 @@ def projection_step(u_star_model, v_star_model, model_phi, training_data,
 
     # Start training
     Niter = 1000
-    tol = 1.0e-10
+    tol = 1.0e-9
     mu_phi = 1.0e3
     alpha = 1.0
     beta = 1.0
     savedloss_phi = []
     savedloss_phi_valid = []
+    overfitting = True
 
-    for iter in range(Niter):
-        # Compute the jacobi matrix
-        jac_res_dict = vmap(
-            jacrev(compute_loss_res, argnums=1),
-            in_dims=(None, None, 0, 0, 0),
-            out_dims=0,
-        )(model_phi, phi_params, x_inner, y_inner, Rf_inner)
+    while overfitting:
+        # Create the new trianing data
+        x_inner, y_inner = mesh.inner_points(100)
+        x_bd, y_bd = mesh.boundary_points(10)
+        nx, ny = mesh.normal_vector(x_bd, y_bd)
+        x_inner, y_inner = x_inner.to(device), y_inner.to(device)
+        x_bd, y_bd = x_bd.to(device), y_bd.to(device)
+        nx, ny = nx.to(device), ny.to(device)
 
-        jac_bd_dict = vmap(
-            jacrev(compute_loss_bd, argnums=1),
-            in_dims=(None, None, 0, 0, 0, 0, 0),
-            out_dims=0,
-        )(model_phi, phi_params, x_bd, y_bd, nx, ny, Rf_bd)
+        # Compute the right-hand side values
+        Rf_inner = (1.5 / Dt) * (
+            model_phi.predict_dx(u_star_model, u_star_params, x_inner, y_inner)
+            + model_phi.predict_dy(v_star_model, v_star_params, x_inner, y_inner)
+        )
+        Rf_bd = torch.zeros_like(x_bd)
 
-        # Stack the jacobian matrix
-        jac_res = torch.hstack([v.view(x_inner.size(0), -1) for v in jac_res_dict.values()])
-        jac_bd = torch.hstack([v.view(x_bd.size(0), -1) for v in jac_bd_dict.values()])
-        jac_res *= torch.sqrt(alpha / torch.tensor(x_inner.size(0)))
-        jac_bd *= torch.sqrt(beta / torch.tensor(x_bd.size(0)))
+        for iter in range(Niter):
+            # Compute the jacobi matrix
+            jac_res_dict = vmap(
+                jacrev(compute_loss_res, argnums=1),
+                in_dims=(None, None, 0, 0, 0),
+                out_dims=0,
+            )(model_phi, phi_params, x_inner, y_inner, Rf_inner)
 
-        # Compute the residual of the loss function
-        l_vec_res = compute_loss_res(model_phi, phi_params, x_inner, y_inner, Rf_inner)
-        l_vec_bd = compute_loss_bd(model_phi, phi_params, x_bd, y_bd, nx, ny, Rf_bd)
-        l_vec_res_valid = compute_loss_res(model_phi, phi_params, x_inner_v, y_inner_v, Rf_inner_valid)
-        l_vec_bd_valid = compute_loss_bd(model_phi, phi_params, x_bd_v, y_bd_v, nx_v, ny_v, Rf_bd_valid)
-        l_vec_res *= torch.sqrt(alpha / torch.tensor(x_inner.size(0)))
-        l_vec_bd *= torch.sqrt(beta / torch.tensor(x_bd.size(0)))
-        l_vec_res_valid /= torch.sqrt(torch.tensor(x_inner_v.size(0)))
-        l_vec_bd_valid /= torch.sqrt(torch.tensor(x_bd_v.size(0)))
+            jac_bd_dict = vmap(
+                jacrev(compute_loss_bd, argnums=1),
+                in_dims=(None, None, 0, 0, 0, 0, 0),
+                out_dims=0,
+            )(model_phi, phi_params, x_bd, y_bd, nx, ny, Rf_bd)
 
-        # Cat the Jacobian matrix and the loss function
-        jacobian = torch.vstack((jac_res, jac_bd))
-        l_vec = torch.vstack((l_vec_res, l_vec_bd))
+            # Stack the jacobian matrix
+            jac_res = torch.hstack([v.view(x_inner.size(0), -1) for v in jac_res_dict.values()])
+            jac_bd = torch.hstack([v.view(x_bd.size(0), -1) for v in jac_bd_dict.values()])
+            jac_res *= torch.sqrt(alpha / torch.tensor(x_inner.size(0)))
+            jac_bd *= torch.sqrt(beta / torch.tensor(x_bd.size(0)))
 
-        # Solve the non-linear system
-        p_phi = cholesky(jacobian, l_vec, mu_phi, device)
-        # Update the parameters
-        phi_params_flatten = nn.utils.parameters_to_vector(phi_params.values())
-        phi_params_flatten += p_phi
-        nn.utils.vector_to_parameters(phi_params_flatten, phi_params.values())
+            # Compute the residual of the loss function
+            l_vec_res = compute_loss_res(model_phi, phi_params, x_inner, y_inner, Rf_inner)
+            l_vec_bd = compute_loss_bd(model_phi, phi_params, x_bd, y_bd, nx, ny, Rf_bd)
+            l_vec_res_valid = compute_loss_res(model_phi, phi_params, x_inner_v, y_inner_v, Rf_inner_valid)
+            l_vec_bd_valid = compute_loss_bd(model_phi, phi_params, x_bd_v, y_bd_v, nx_v, ny_v, Rf_bd_valid)
+            l_vec_res *= torch.sqrt(alpha / torch.tensor(x_inner.size(0)))
+            l_vec_bd *= torch.sqrt(beta / torch.tensor(x_bd.size(0)))
+            l_vec_res_valid /= torch.sqrt(torch.tensor(x_inner_v.size(0)))
+            l_vec_bd_valid /= torch.sqrt(torch.tensor(x_bd_v.size(0)))
 
-        # Compute the loss function
-        loss_phi = torch.sum(l_vec_res**2) + torch.sum(l_vec_bd**2)
-        loss_phi_valid = torch.sum(l_vec_res_valid**2) + torch.sum(l_vec_bd_valid**2)
-        savedloss_phi.append(loss_phi.item())
-        savedloss_phi_valid.append(loss_phi_valid.item())
+            # Cat the Jacobian matrix and the loss function
+            jacobian = torch.vstack((jac_res, jac_bd))
+            l_vec = torch.vstack((l_vec_res, l_vec_bd))
 
-        if iter % 5 == 0:
-            print(f"iter = {iter}, loss_phi = {loss_phi.item():.2e}, mu_phi = {mu_phi:.1e}")
+            # Solve the non-linear system
+            p_phi = cholesky(jacobian, l_vec, mu_phi, device)
+            # Update the parameters
+            phi_params_flatten = nn.utils.parameters_to_vector(phi_params.values())
+            phi_params_flatten += p_phi
+            nn.utils.vector_to_parameters(phi_params_flatten, phi_params.values())
 
-        # Stop the training if the loss function is converged
-        if (iter == Niter - 1) or (loss_phi < tol):
-            print('Successful training phi ...')
-            print(f"iter = {iter}, loss_phi = {loss_phi.item():.2e}, mu_phi = {mu_phi:.1e}")
-            break
-            
-        # Update the parameter mu
-        if iter % 3 == 0:
-            if savedloss_phi[iter] > savedloss_phi[iter - 1]:
-                mu_phi = min(2 * mu_phi, 1e8)
-            else:
-                mu_phi = max(mu_phi / 5, 1e-10)
+            # Compute the loss function
+            loss_phi = torch.sum(l_vec_res**2) + torch.sum(l_vec_bd**2)
+            loss_phi_valid = torch.sum(l_vec_res_valid**2) + torch.sum(l_vec_bd_valid**2)
+            savedloss_phi.append(loss_phi.item())
+            savedloss_phi_valid.append(loss_phi_valid.item())
 
-    # Plot the loss function
-    fig, ax = plt.subplots()
-    ax.semilogy(savedloss_phi, "k-", label="training loss")
-    ax.semilogy(savedloss_phi_valid, "r--", label="test loss")
-    ax.set_xlabel("Iteration")
-    ax.set_ylabel("Loss")
-    ax.legend()
-    plt.show()
+            if iter % 5 == 0:
+                print(f"iter = {iter}, loss_phi = {loss_phi.item():.2e}, mu_phi = {mu_phi:.1e}")
+
+            # Stop the training if the loss function is converged
+            if (iter == Niter - 1) or (loss_phi < tol):
+                print('Successful training phi ...')
+                print(f"iter = {iter}, loss_phi = {loss_phi.item():.2e}, mu_phi = {mu_phi:.1e}")
+                if (loss_phi_valid / loss_phi) < 10.0: 
+                    overfitting = False
+                break
+                
+            # Update the parameter mu
+            if iter % 3 == 0:
+                if savedloss_phi[iter] > savedloss_phi[iter - 1]:
+                    mu_phi = min(2 * mu_phi, 1e8)
+                else:
+                    mu_phi = max(mu_phi / 3, 1e-10)
+
+        # Plot the loss function
+        fig, ax = plt.subplots()
+        ax.semilogy(savedloss_phi, "k-", label="training loss")
+        ax.semilogy(savedloss_phi_valid, "r--", label="test loss")
+        ax.set_xlabel("Iteration")
+        ax.set_ylabel("Loss")
+        ax.legend()
+        plt.show()
 
     return phi_params
         
 
 def main():
     # Define the neural network
-    u_star_model = PinnModel([2, 20, 20, 1]).to(device)
-    v_star_model = PinnModel([2, 20, 20, 1]).to(device)
-    phi_model = PinnModel([2, 20, 20, 20, 20, 1]).to(device)
-    params = dict(u_star_model.named_parameters())
+    u_star_model = PinnModel([2, 40, 1]).to(device)
+    v_star_model = PinnModel([2, 40, 1]).to(device)
+    phi_model = PinnModel([2, 40, 40, 1]).to(device)
     print(u_star_model)
 
     total_params = u_star_model.num_total_params()
@@ -537,30 +551,22 @@ def main():
 
     # Define the training data
     mesh = CreateMesh()
-    x_inner_u, y_inner_u = mesh.inner_points(500)
-    x_inner_phi, y_inner_phi = mesh.inner_points(2000)
+    x_inner, y_inner = mesh.inner_points(100)
     x_inner_valid, y_inner_valid = mesh.inner_points(10000)
-    x_bd_u, y_bd_u = mesh.boundary_points(50)
-    x_bd_phi, y_bd_phi = mesh.boundary_points(100)
+    x_bd, y_bd = mesh.boundary_points(10)
     x_bd_valid, y_bd_valid = mesh.boundary_points(1000)
     # Compute the boundary normal vector
-    nx, ny = mesh.normal_vector(x_bd_phi, y_bd_phi)
-    nx_valid, ny_valid = mesh.normal_vector(x_bd_valid, y_bd_valid)
 
     # Move the data to the device
-    x_inner_u, y_inner = x_inner_u.to(device), y_inner_u.to(device)
-    x_bd_u, y_bd_u = x_bd_u.to(device), y_bd_u.to(device)
-    x_inner_phi, y_inner_phi = x_inner_phi.to(device), y_inner_phi.to(device)
-    x_bd_phi, y_bd_phi = x_bd_phi.to(device), y_bd_phi.to(device)
+    x_inner, y_inner = x_inner.to(device), y_inner.to(device)
+    x_bd, y_bd = x_bd.to(device), y_bd.to(device)
     x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
     x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
-    nx, ny = nx.to(device), ny.to(device)
-    nx_valid, ny_valid = nx_valid.to(device), ny_valid.to(device)
 
     # Pack the training data
-    u_training_data = (
-        (x_inner_u, y_inner_u),
-        (x_bd_u, y_bd_u),
+    u_star_training_data = (
+        (x_inner, y_inner),
+        (x_bd, y_bd),
         (x_inner_valid, y_inner_valid),
         (x_bd_valid, y_bd_valid),
     )
@@ -627,16 +633,18 @@ def main():
     
     # Predict the intermediate velocity field (u*, v*)
     u_star_params, v_star_params = prediction_step(
-        u_star_model, v_star_model, training_data, prev_value, prev_value_valid, 2
+        u_star_model, v_star_model, u_star_training_data, prev_value, prev_value_valid, 2
     )
     u_star_model.load_state_dict(u_star_params)
     v_star_model.load_state_dict(v_star_params)
+    print("Finish the prediction step ...")
 
     # Project the intermediate velocity field onto the space of divergence-free fields
     phi_params = projection_step(
-        u_star_model, v_star_model, phi_model, training_data, u_star_params, v_star_params
+        u_star_model, v_star_model, phi_model, u_star_params, v_star_params
     )
     phi_model.load_state_dict(phi_params)
+    print("Finish the projection step ...")
 
     # Plot the predicted velocity field
     x_plot, y_plot = torch.meshgrid(

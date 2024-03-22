@@ -6,8 +6,9 @@ torch.set_default_dtype(torch.float64)
 
 class CreateMesh:
     def inner_points(self, nx):
-        points_x = torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx))
-        points_y = torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx))
+        points = torch.from_numpy(qmc.LatinHypercube(d=2).random(n=nx))
+        points_x = points[:, 0].reshape(-1, 1)
+        points_y = points[:, 1].reshape(-1, 1)
         return points_x, points_y
 
     def boundary_points(self, nx):
