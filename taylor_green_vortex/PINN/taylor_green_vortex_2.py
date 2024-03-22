@@ -408,7 +408,7 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
     # Define the parameters
     phi_params = dict(model_phi.named_parameters())
     # 10 times the parameters of phi_params
-    phi_params_flatten = nn.utils.parameters_to_vector(phi_params.values()) * 10
+    phi_params_flatten = nn.utils.parameters_to_vector(phi_params.values()) * 5
     nn.utils.vector_to_parameters(phi_params_flatten, phi_params.values())
 
     # Compute the validate right-hand side values
@@ -433,13 +433,13 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
             model.predict_dx(model, params, x, y) * nx
             + model.predict_dy(model, params, x, y) * ny
         )
+        # pred = model.predict(model, params, x, y)
         loss_bd = pred - Rf_bd
         return loss_bd
-
+    
     # Start training
     Niter = 1000
     tol = 1.0e-9
-    mu_phi = 1.0e3
     alpha = 1.0
     beta = 1.0
     savedloss_phi = []
@@ -447,9 +447,10 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
     overfitting = True
 
     while overfitting:
+        mu_phi = 1.0e3
         # Create the new trianing data
-        x_inner, y_inner = mesh.inner_points(100)
-        x_bd, y_bd = mesh.boundary_points(10)
+        x_inner, y_inner = mesh.inner_points(500)
+        x_bd, y_bd = mesh.boundary_points(100)
         nx, ny = mesh.normal_vector(x_bd, y_bd)
         x_inner, y_inner = x_inner.to(device), y_inner.to(device)
         x_bd, y_bd = x_bd.to(device), y_bd.to(device)
@@ -497,7 +498,8 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
             l_vec = torch.vstack((l_vec_res, l_vec_bd))
 
             # Solve the non-linear system
-            p_phi = cholesky(jacobian, l_vec, mu_phi, device)
+            # p_phi = cholesky(jacobian, l_vec, mu_phi, device)
+            p_phi = qr_decomposition(jacobian, l_vec, mu_phi, device)
             # Update the parameters
             phi_params_flatten = nn.utils.parameters_to_vector(phi_params.values())
             phi_params_flatten += p_phi
@@ -509,14 +511,50 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
             savedloss_phi.append(loss_phi.item())
             savedloss_phi_valid.append(loss_phi_valid.item())
 
+            # Update alpha and beta
+            if iter % 100 == 0:
+                dloss_res_dp = grad(
+                    lambda primal: torch.sum(
+                        compute_loss_res(model_phi, primal, x_inner, y_inner, Rf_inner) ** 2
+                    ),
+                    argnums=0,
+                )(phi_params)
+
+                dloss_bd_dp = grad(
+                    lambda primal: torch.sum(
+                        compute_loss_bd(model_phi, primal, x_bd, y_bd, nx, ny, Rf_bd) ** 2
+                    ),
+                    argnums=0,
+                )(phi_params)
+
+                dloss_res_dp_flatten = nn.utils.parameters_to_vector(
+                    dloss_res_dp.values()
+                ) / torch.tensor(x_inner.size(0))
+                dloss_res_dp_norm = torch.linalg.norm(dloss_res_dp_flatten)
+
+                dloss_bd_dp_flatten = nn.utils.parameters_to_vector(
+                    dloss_bd_dp.values()
+                ) / torch.tensor(x_bd.size(0))
+                dloss_bd_dp_norm = torch.linalg.norm(dloss_bd_dp_flatten)
+
+                alpha_bar = (dloss_res_dp_norm + dloss_bd_dp_norm) / dloss_res_dp_norm
+                beta_bar = (dloss_res_dp_norm + dloss_bd_dp_norm) / dloss_bd_dp_norm
+
+                alpha = (1 - 0.1) * alpha + 0.1 * alpha_bar
+                beta = (1 - 0.1) * beta + 0.1 * beta_bar
+                print(f"alpha: {alpha:.2f}, beta: {beta:.2f}")
+
             if iter % 5 == 0:
                 print(f"iter = {iter}, loss_phi = {loss_phi.item():.2e}, mu_phi = {mu_phi:.1e}")
 
             # Stop the training if the loss function is converged
             if (iter == Niter - 1) or (loss_phi < tol):
-                print('Successful training phi ...')
                 print(f"iter = {iter}, loss_phi = {loss_phi.item():.2e}, mu_phi = {mu_phi:.1e}")
                 if (loss_phi_valid / loss_phi) < 10.0: 
+                    overfitting = False
+                    print('Successful training phi ...')
+                else:
+                    print('Overfitting ...')
                     overfitting = False
                 break
                 
@@ -543,11 +581,14 @@ def main():
     # Define the neural network
     u_star_model = PinnModel([2, 40, 1]).to(device)
     v_star_model = PinnModel([2, 40, 1]).to(device)
-    phi_model = PinnModel([2, 40, 40, 1]).to(device)
-    print(u_star_model)
+    phi_model = PinnModel([2, 20, 20, 20, 20, 20, 20, 20, 1]).to(device)
 
-    total_params = u_star_model.num_total_params()
-    print(f"Total number of parameters: {total_params}")
+    total_params_u_star = u_star_model.num_total_params()
+    total_params_v_star = v_star_model.num_total_params()
+    total_params_phi = phi_model.num_total_params()
+    print(f"Total number of u* parameters: {total_params_u_star}")
+    print(f"Total number of v* parameters: {total_params_v_star}")
+    print(f"Total number of phi parameters: {total_params_phi}")
 
     # Define the training data
     mesh = CreateMesh()
@@ -659,9 +700,9 @@ def main():
     sca1 = axs[0].scatter(x_plot.cpu(), y_plot.cpu(), u_star, c=u_star, cmap="viridis")
     sca2 = axs[1].scatter(x_plot.cpu(), y_plot.cpu(), v_star, c=v_star, cmap="viridis")
     sca3 = axs[2].scatter(x_plot.cpu(), y_plot.cpu(), phi, c=phi, cmap="viridis")
-    fig.colorbar(sca1, ax=axs[0], shrink=0.5, aspect=10, pad=0.1)
-    fig.colorbar(sca2, ax=axs[1], shrink=0.5, aspect=10, pad=0.1)
-    fig.colorbar(sca3, ax=axs[2], shrink=0.5, aspect=10, pad=0.1)
+    fig.colorbar(sca1, ax=axs[0], shrink=0.3, aspect=10, pad=0.15)
+    fig.colorbar(sca2, ax=axs[1], shrink=0.3, aspect=10, pad=0.15)
+    fig.colorbar(sca3, ax=axs[2], shrink=0.3, aspect=10, pad=0.15)
     axs[0].set_xlabel("x")
     axs[1].set_xlabel("x")
     axs[2].set_xlabel("x")

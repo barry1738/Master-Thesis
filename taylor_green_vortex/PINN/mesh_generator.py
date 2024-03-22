@@ -14,11 +14,15 @@ class CreateMesh:
     def boundary_points(self, nx):
         left_bd_x = torch.full((nx, 1), 0.0)
         right_bd_x = torch.full((nx, 1), 1.0)
-        top_bd_x = torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx))
-        bottom_bd_x = torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx))
+        top_bd_x = torch.vstack((
+            torch.tensor(0.0), torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx)), torch.tensor(1.0)))
+        bottom_bd_x = torch.vstack((
+            torch.tensor(0.0), torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx)), torch.tensor(1.0)))
 
-        left_bd_y = torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx))
-        right_bd_y = torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx))
+        left_bd_y = torch.vstack((
+            torch.tensor(0.0), torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx)), torch.tensor(1.0)))
+        right_bd_y = torch.vstack((
+            torch.tensor(0.0), torch.from_numpy(qmc.LatinHypercube(d=1).random(n=nx)), torch.tensor(1.0)))
         top_bd_y = torch.full((nx, 1), 1.0)
         bottom_bd_y = torch.full((nx, 1), 0.0)
 
