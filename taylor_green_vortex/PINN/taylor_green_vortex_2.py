@@ -14,7 +14,6 @@ Step 3: Update the velocity and pressure fields
 
 
 import torch
-import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
 from torch.func import functional_call, vmap, jacrev, vjp, grad
