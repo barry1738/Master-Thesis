@@ -60,6 +60,16 @@ class PinnModel(nn.Module):
         """Compute the second directional derivative of the model output with respect to x."""
         output, vjpfunc = vjp(lambda primal: self.predict_dx(model, params, primal, y), x)
         return vjpfunc(torch.ones_like(output))[0]
+    
+    def predict_dxy(self, model, params, x, y):
+        """Compute the mixed directional derivative of the model output with respect to x and y."""
+        output, vjpfunc = vjp(lambda primal: self.predict_dx(model, params, x, primal), y)
+        return vjpfunc(torch.ones_like(output))[0]
+    
+    def predict_dyx(self, model, params, x, y):
+        """Compute the mixed directional derivative of the model output with respect to y and x."""
+        output, vjpfunc = vjp(lambda primal: self.predict_dy(model, params, primal, y), x)
+        return vjpfunc(torch.ones_like(output))[0]
 
     def predict_dyy(self, model, params, x, y):
         """Compute the second directional derivative of the model output with respect to y."""
@@ -574,7 +584,78 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
         plt.show()
 
     return phi_params
-        
+
+
+def update_step(training_data, u_star_model, v_star_model, phi_model, 
+                u_star_params, v_star_params, phi_params, prev_value, 
+                prev_value_valid):
+    """The update step for velocity and pressure fields"""
+    # Unpack the training data
+    x_inner, y_inner = training_data[0]
+    x_inner_v, y_inner_v = training_data[2]
+
+    # Create the new dictionary for the update value
+    new_value = dict()
+    new_value["u0"] = prev_value["u1"]
+    new_value["v0"] = prev_value["v1"]
+    new_value["p0"] = prev_value["p1"]
+    new_value["du0dx"] = prev_value["du1dx"]
+    new_value["du0dy"] = prev_value["du1dy"]
+    new_value["dv0dx"] = prev_value["dv1dx"]
+    new_value["dv0dy"] = prev_value["dv1dy"]
+    new_value["dp0dx"] = prev_value["dp1dx"]
+    new_value["dp0dy"] = prev_value["dp1dy"]
+    new_value["u1"] = (
+        u_star_model.predict(u_star_model, u_star_params, x_inner, y_inner)
+        - (2 * Dt / 3) * phi_model.predict_dx(phi_model, phi_params, x_inner, y_inner)
+    )
+    new_value["v1"] = (
+        v_star_model.predict(v_star_model, v_star_params, x_inner, y_inner)
+        - (2 * Dt / 3) * phi_model.predict_dy(phi_model, phi_params, x_inner, y_inner)
+    )
+    new_value["p1"] = (
+        prev_value["p0"]
+        + phi_model.predict(phi_model, phi_params, x_inner, y_inner)
+        - (1 / Re) * (
+            phi_model.predict_dx(u_star_model, u_star_params, x_inner, y_inner)
+            + phi_model.predict_dy(v_star_model, v_star_params, x_inner, y_inner)
+        )
+    )
+    new_value["du1dx"] = (
+        u_star_model.predict_dx(u_star_model, u_star_params, x_inner, y_inner)
+        - (2 * Dt / 3) * phi_model.predict_dxx(phi_model, phi_params, x_inner, y_inner)
+    )
+    new_value["du1dy"] = (
+        u_star_model.predict_dy(u_star_model, u_star_params, x_inner, y_inner)
+        - (2 * Dt / 3) * phi_model.predict_dxy(phi_model, phi_params, x_inner, y_inner)
+    )
+    new_value["dv1dx"] = (
+        v_star_model.predict_dx(v_star_model, v_star_params, x_inner, y_inner)
+        - (2 * Dt / 3) * phi_model.predict_dyx(phi_model, phi_params, x_inner, y_inner)
+    )
+    new_value["dv1dy"] = (
+        v_star_model.predict_dy(v_star_model, v_star_params, x_inner, y_inner)
+        - (2 * Dt / 3) * phi_model.predict_dyy(phi_model, phi_params, x_inner, y_inner)
+    )
+    new_value["dp1dx"] = (
+        prev_value["dp0dx"]
+        + phi_model.predict_dx(phi_model, phi_params, x_inner, y_inner)
+        - (1 / Re) * (
+            phi_model.predict_dxx(u_star_model, u_star_params, x_inner, y_inner)
+            + phi_model.predict_dyx(v_star_model, v_star_params, x_inner, y_inner)
+        )
+    )
+    new_value["dp1dy"] = (
+        prev_value["dp0dy"]
+        + phi_model.predict_dy(phi_model, phi_params, x_inner, y_inner)
+        - (1 / Re) * (
+            phi_model.predict_dxy(u_star_model, u_star_params, x_inner, y_inner)
+            + phi_model.predict_dyy(v_star_model, v_star_params, x_inner, y_inner)
+        )
+    )
+
+    return new_value
+
 
 def main():
     # Define the neural network
@@ -604,7 +685,7 @@ def main():
     x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
 
     # Pack the training data
-    u_star_training_data = (
+    training_data = (
         (x_inner, y_inner),
         (x_bd, y_bd),
         (x_inner_valid, y_inner_valid),
@@ -673,7 +754,7 @@ def main():
     
     # Predict the intermediate velocity field (u*, v*)
     u_star_params, v_star_params = prediction_step(
-        u_star_model, v_star_model, u_star_training_data, prev_value, prev_value_valid, 2
+        u_star_model, v_star_model, training_data, prev_value, prev_value_valid, 2
     )
     u_star_model.load_state_dict(u_star_params)
     v_star_model.load_state_dict(v_star_params)
@@ -686,7 +767,20 @@ def main():
     phi_model.load_state_dict(phi_params)
     print("Finish the projection step ...")
 
-    # Plot the predicted velocity field
+    # Update the velocity field and pressure field
+    new_value = update_step(
+        training_data,
+        u_star_model,
+        v_star_model,
+        phi_model,
+        u_star_params,
+        v_star_params,
+        phi_params,
+        prev_value,
+        prev_value_valid
+    )
+
+    # Plot the intermediate velocity field and phi field
     x_plot, y_plot = torch.meshgrid(
         torch.linspace(0, 1, 100), torch.linspace(0, 1, 100), indexing="xy"
     )
@@ -712,6 +806,10 @@ def main():
     axs[1].set_title("Predicted v*")
     axs[2].set_title("Predicted phi")
     plt.show()
+
+    # Plot the velocity field and pressure field
+    fig, axs = plt.subplots(nrows=1, ncols=3, subplot_kw={"projection": "3d"})
+    sca1 = axs[0].scatter(x_plot.cpu(), y_plot.cpu(), new_value["u1"], c=new_value["u1"], cmap="viridis")
 
 
 if __name__ == "__main__":

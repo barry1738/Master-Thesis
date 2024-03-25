@@ -12,14 +12,14 @@ torch.cuda.empty_cache()
 torch.set_default_dtype(torch.float64)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 # device = 'cpu'
-# torch.set_num_threads(10)
+torch.set_num_threads(10)
 print("device = ", device)
 
 
 # pwd = "/home/barry/Desktop/2024_03_18/"
 pwd = "C:\\Users\\barry\\OneDrive\\weekly report\\2024_03_25\\"
 # dir_name = "cos_6t/"
-dir_name = "cos_4t\\"
+dir_name = "cos_6t\\"
 if not os.path.exists(pwd + dir_name):
     print("Creating data directory...")
     os.makedirs(pwd + dir_name)
@@ -223,7 +223,7 @@ def main():
     # print(model)
 
     # Initialize the mesh model
-    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(4 * t), radius=2.0)
+    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(6 * t), radius=2.0)
     
     # Create the validation data
     x_inner_v, y_inner_v = mesh.domain_points(10000)
@@ -268,13 +268,14 @@ def main():
     savedloss = []
     saveloss_vaild = []
     overfitting = True
+    overfitting_count = 0
 
     start_time = time.time()
     while overfitting:
         mu = 1.0e1
 
         # Create the training data
-        x_inner, y_inner = mesh.domain_points(4000)
+        x_inner, y_inner = mesh.domain_points(5000)
         x_if, y_if = mesh.interface_points(500)
         z_inner = mesh.sign(x_inner, y_inner)
 
@@ -293,7 +294,7 @@ def main():
         ax.set_title("Training Data")
         plt.colorbar(sca)
         plt.savefig(pwd + dir_name + "training_data.png", dpi=300)
-        plt.show()
+        # plt.show()
 
         # Move the data to the device
         x_inner, y_inner, z_inner = x_inner.to(device), y_inner.to(device), z_inner.to(device)
@@ -355,8 +356,8 @@ def main():
             L_vec = torch.vstack([L_vec_res, L_vec_if_1, L_vec_if_2])
 
             # Solve the linear system
-            # p = qr_decomposition(Jac, L_vec, mu)
-            p = cholesky(Jac, L_vec, mu)
+            p = qr_decomposition(Jac, L_vec, mu)
+            # p = cholesky(Jac, L_vec, mu)
             u_params_flatten = nn.utils.parameters_to_vector(u_params.values())
             u_params_flatten += p
 
@@ -381,19 +382,23 @@ def main():
 
             # Update mu or Stop the iteration
             if loss < tol:
-                if loss_vaild / loss < 10.0:
+                if loss_vaild / loss < 10.0 or overfitting_count > 4:
                     overfitting = False
-                    print("The model has been trained successfully!")
+                    if overfitting_count > 4:
+                        print("The model is still overfitting!")
+                    else:
+                        print("The model has been trained successfully!")
                 else:
                     overfitting = True
-                    print("The model is overfitting!")               
+                    overfitting_count += 1
+                    print("The model is overfitting!")
                 break
 
             elif step % 3 == 0:
                 if savedloss[step] > savedloss[step - 1]:
                     mu = min(mu * 2.0, 1.0e8)
                 else:
-                    mu = max(mu / 5.0, 1.0e-10)
+                    mu = max(mu / 3.0, 1.0e-10)
 
             if step % 100 == 0:
                 # Compute the parameters alpha_bd, alpha_if_1 and alpha_if_2
@@ -461,12 +466,12 @@ def main():
         ax.set_title("Loss function over iterations")
         ax.legend()
         plt.savefig(pwd + dir_name + "loss.png", dpi=300)
-        plt.show()
+        # plt.show()
 
 
     # Save the Model
     model.load_state_dict(u_params)
-    torch.save(model, pwd + dir_name + "model_cos_4t.pt")
+    torch.save(model, pwd + dir_name + "model_cos_6t.pt")
     print(f"--- {time.time() - start_time:.2f} seconds ---")
 
     # Plot the training results
@@ -504,7 +509,7 @@ def main():
     ax2.set_title("Normal Prediction")
     plt.colorbar(sca, shrink=0.5, aspect=10, pad=0.02)
     plt.savefig(pwd + dir_name + "training_results.png", dpi=300)
-    plt.show()
+    # plt.show()
 
 
 if __name__ == '__main__':
