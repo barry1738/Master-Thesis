@@ -97,16 +97,34 @@ def compute_jacobian_auto_diff(model, params, x, y):
 
 
 def main():
-    model = Model([2, 100, 100, 1])
+    model = Model([2, 5, 1])
     params = dict(model.named_parameters())
-    params_flat = 10 * nn.utils.parameters_to_vector(params.values())
+
+    print(model)
+
+    for key, val in params.items():
+        print(key, val)
+
+    print("\n\n ===================== \n\n")
+
+    for key, val in params.items():
+        if "linear_layers.0.weight" in key:
+            nn.init.xavier_normal_(val, gain=100.0)
+            print(key, val)
+
+    print("\n\n ===================== \n\n")
+
+    for key, val in params.items():
+        print(key, val)
+
+    # params_flat = 10 * nn.utils.parameters_to_vector(params.values())
     # nn.utils.vector_to_parameters(params_flat, params.values())
 
-    nx = 5000
-    points_x = torch.rand(nx, 1)
-    points_y = torch.rand(nx, 1)
+    # nx = 5000
+    # points_x = torch.rand(nx, 1)
+    # points_y = torch.rand(nx, 1)
 
-    print(f'nrows = {nx}, ncols = {params_flat.numel()}')
+    # print(f'nrows = {nx}, ncols = {params_flat.numel()}')
 
     # print(functional_call(model, params, (points_x, points_y)))
 
@@ -120,21 +138,21 @@ def main():
     # print(jacobian_auto_diff)
 
     # Benchmark finite difference
-    timer_finite_diff = benchmark.Timer(
-        stmt="compute_jacobian_finitie_diff(m, p, x, y)",
-        setup="from __main__ import compute_jacobian_finitie_diff",
-        globals={'m': model, 'p': params, 'x': points_x, 'y': points_y},
-        num_threads=num_threads,
-    )
-    timer_auto_diff = benchmark.Timer(
-        stmt="compute_jacobian_auto_diff(m, p, x, y)",
-        setup="from __main__ import compute_jacobian_auto_diff",
-        globals={"m": model, "p": params, "x": points_x, "y": points_y},
-        num_threads=num_threads,
-    )
+    # timer_finite_diff = benchmark.Timer(
+    #     stmt="compute_jacobian_finitie_diff(m, p, x, y)",
+    #     setup="from __main__ import compute_jacobian_finitie_diff",
+    #     globals={'m': model, 'p': params, 'x': points_x, 'y': points_y},
+    #     num_threads=num_threads,
+    # )
+    # timer_auto_diff = benchmark.Timer(
+    #     stmt="compute_jacobian_auto_diff(m, p, x, y)",
+    #     setup="from __main__ import compute_jacobian_auto_diff",
+    #     globals={"m": model, "p": params, "x": points_x, "y": points_y},
+    #     num_threads=num_threads,
+    # )
 
-    print(timer_finite_diff.timeit(10))
-    print(timer_auto_diff.timeit(10))
+    # print(timer_finite_diff.timeit(10))
+    # print(timer_auto_diff.timeit(10))
 
 
 if __name__ == "__main__":
