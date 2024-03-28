@@ -19,10 +19,10 @@ class Model(nn.Module):
             [nn.Linear(layers[i], layers[i + 1]) for i in range(len(layers) - 1)]
         )
 
-    # def weights_init(self, model):
-    #     if isinstance(model, nn.Linear):
-    #         # nn.init.xavier_uniform_(model.weight.data)
-    #         model.reset_parameters()
+    def weights_init(self, model):
+        if isinstance(model, nn.Linear):
+            nn.init.xavier_uniform_(model.weight.data, gain=100)
+            # model.reset_parameters()
 
     def forward(self, x, y):
         """Forward pass of the neural network."""
@@ -107,9 +107,14 @@ def main():
 
     print("\n\n ===================== \n\n")
 
+    # model.apply(model.weights_init)
+
     for key, val in params.items():
         if "linear_layers.0.weight" in key:
             nn.init.xavier_normal_(val, gain=100.0)
+            print(key, val)
+        elif "weight" in key:
+            nn.init.xavier_uniform_(val, gain=10000.0)
             print(key, val)
 
     print("\n\n ===================== \n\n")
