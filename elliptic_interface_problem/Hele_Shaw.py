@@ -15,9 +15,9 @@ print("device = ", device)
 
 
 # pwd = "/home/barry/Desktop/2024_03_18/"
-pwd = "C:\\Users\\barry\\OneDrive\\weekly report\\2024_03_25\\with_boundary"
-# dir_name = "cos_6t/"
-dir_name = "\\cos_6t\\"
+pwd = "C:\\Users\\barry\\Desktop"
+# dir_name = "cos_5t/"
+dir_name = "\\cos_5t\\"
 if not os.path.exists(pwd + dir_name):
     print("Creating data directory...")
     os.makedirs(pwd + dir_name)
@@ -30,28 +30,28 @@ class CreateMesh:
         self.func = interface_func
         self.r = radius
 
-    # def domain_points(self, n, *, xc=0, yc=0):
-    #     """Uniform random distribution within a circle"""
-    #     radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
-    #     theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
-    #     x = xc + radius * torch.cos(theta)
-    #     y = yc + radius * torch.sin(theta)
-    #     return x, y
-
     def domain_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution within a circle"""
-        nx = n // 5
-        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=1*nx))
-        theta_if = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=4*nx))
-        radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=1*nx)))
-        radius_if = self.func(theta_if)
-        x_eps = torch.Tensor(4*nx, 1).uniform_(-0.2, 0.2)
-        y_eps = torch.Tensor(4*nx, 1).uniform_(-0.2, 0.2)
+        radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=n)))
+        theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=n))
         x = xc + radius * torch.cos(theta)
         y = yc + radius * torch.sin(theta)
-        x_if = xc + (radius_if + x_eps) * torch.cos(theta_if)
-        y_if = yc + (radius_if + y_eps) * torch.sin(theta_if)
-        return torch.vstack((x, x_if)), torch.vstack((y, y_if))
+        return x, y
+
+    # def domain_points(self, n, *, xc=0, yc=0):
+    #     """Uniform random distribution within a circle"""
+    #     nx = n // 5
+    #     theta = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=1*nx))
+    #     theta_if = torch.tensor(2 * np.pi * qmc.LatinHypercube(d=1).random(n=4*nx))
+    #     radius = torch.tensor(self.r * np.sqrt(qmc.LatinHypercube(d=1).random(n=1*nx)))
+    #     radius_if = self.func(theta_if)
+    #     x_eps = torch.Tensor(4*nx, 1).uniform_(-0.2, 0.2)
+    #     y_eps = torch.Tensor(4*nx, 1).uniform_(-0.2, 0.2)
+    #     x = xc + radius * torch.cos(theta)
+    #     y = yc + radius * torch.sin(theta)
+    #     x_if = xc + (radius_if + x_eps) * torch.cos(theta_if)
+    #     y_if = yc + (radius_if + y_eps) * torch.sin(theta_if)
+    #     return torch.vstack((x, x_if)), torch.vstack((y, y_if))
     
     def boundary_points(self, n, *, xc=0, yc=0):
         """Uniform random distribution on a circle"""
@@ -226,7 +226,8 @@ def cholesky(J, diff, mu):
 def main():
     # Define the model
     model = Model(3, [40, 40, 40], 1).to(device)
-    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(6 * t), radius=2.0)
+    print(model)
+    mesh = CreateMesh(interface_func=lambda t: 1 + 0.1 * torch.cos(5 * t), radius=2.0)
 
     # Create the validation data
     x_inner_v, y_inner_v = mesh.domain_points(10000)
@@ -255,8 +256,16 @@ def main():
     # get the training parameters and total number of parameters
     u_params = dict(model.named_parameters())
     # 10 times the initial parameters
-    u_params_flatten = 10.0 * nn.utils.parameters_to_vector(u_params.values())
-    nn.utils.vector_to_parameters(u_params_flatten, u_params.values())
+    for key, val in u_params.items():
+        if "ln_in.weight" in key:
+            nn.init.xavier_uniform_(val, gain=100.0)
+        elif "ln_out.weight" in key:
+            nn.init.xavier_uniform_(val, gain=1.0)
+        elif "weight" in key:
+            nn.init.xavier_uniform_(val, gain=1.0)
+        print(key, val)
+    u_params_flatten = nn.utils.parameters_to_vector(u_params.values())
+    # nn.utils.vector_to_parameters(u_params_flatten, u_params.values())
     print(f"Number of parameters = {u_params_flatten.numel()}")
 
     Ca = torch.tensor(100)
@@ -286,7 +295,7 @@ def main():
         # Create the training data
         x_inner, y_inner = mesh.domain_points(2000)
         x_bd, y_bd = mesh.boundary_points(100)
-        x_if, y_if = mesh.interface_points(500)
+        x_if, y_if = mesh.interface_points(200)
         z_inner = mesh.sign(x_inner, y_inner)
         z_bd = torch.ones_like(x_bd)
 
@@ -526,7 +535,7 @@ def main():
 
     # Save the Model
     model.load_state_dict(u_params)
-    torch.save(model, pwd + dir_name + "model_cos_6t.pt")
+    torch.save(model, pwd + dir_name + "model_cos_5t.pt")
 
     # Plot the training results
     plot_x, plot_y = mesh.domain_points(50000)
