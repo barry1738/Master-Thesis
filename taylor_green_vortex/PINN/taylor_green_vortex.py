@@ -18,7 +18,7 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from torch.func import functional_call, vmap, jacrev, vjp, grad
 from mesh_generator import CreateMesh
-from taylor_green_vortex.PINN.utilities import exact_sol, qr_decomposition, cholesky
+from utilities import exact_sol, qr_decomposition, cholesky
 
 
 torch.set_default_dtype(torch.float64)
@@ -33,6 +33,10 @@ class PinnModel(nn.Module):
         self.linear_layers = nn.ModuleList(
             [nn.Linear(layers[i], layers[i + 1]) for i in range(len(layers) - 1)]
         )
+
+    def weights_init(self, model, *, multi=1.0):
+        if isinstance(model, nn.Linear):
+            nn.init.xavier_uniform_(model.weight.data, gain=multi)
 
     def forward(self, x, y):
         """Forward pass of the neural network."""
@@ -88,6 +92,12 @@ def prediction_step(model_u_star, model_v_star, training_data, prev_val, prev_va
     x_inner_v, y_inner_v = training_data[2]
     x_bd_v, y_bd_v = training_data[3]
 
+    # Move the data to the device
+    x_inner, y_inner = x_inner.to(device), y_inner.to(device)
+    x_bd, y_bd = x_bd.to(device), y_bd.to(device)
+    x_inner_v, y_inner_v = x_inner_v.to(device), y_inner_v.to(device)
+    x_bd_v, y_bd_v = x_bd_v.to(device), y_bd_v.to(device)
+
     # Define the parameters
     u_star_params = dict(model_u_star.named_parameters())
     v_star_params = dict(model_v_star.named_parameters())
@@ -99,41 +109,57 @@ def prediction_step(model_u_star, model_v_star, training_data, prev_val, prev_va
 
     # Compute the right-hand side values
     Rf_u_inner = (
-        4 * prev_val["u1"]
-        - prev_val["u0"]
-        - 2 * (2 * Dt) * (prev_val["u1"] * prev_val["du1dx"] + 
-                          prev_val["v1"] * prev_val["du1dy"])
-        + (2 * Dt) * (prev_val["u0"] * prev_val["du0dx"] + 
-                      prev_val["v0"] * prev_val["du0dy"])
-        - (2 * Dt) * (prev_val["dp1dx"])
-    )
+        4 * torch.tensor(prev_val["u1"][:x_inner.size(0), :])
+        - torch.tensor(prev_val["u0"][:x_inner.size(0), :])
+        - 2 * (2 * Dt) * (torch.tensor(prev_val["u1"][:x_inner.size(0), :]) * 
+                          torch.tensor(prev_val["du1dx"][:x_inner.size(0), :]) + 
+                          torch.tensor(prev_val["v1"][:x_inner.size(0), :]) * 
+                          torch.tensor(prev_val["du1dy"][:x_inner.size(0), :]))
+        + (2 * Dt) * (torch.tensor(prev_val["u0"][:x_inner.size(0), :]) * 
+                      torch.tensor(prev_val["du0dx"][:x_inner.size(0), :]) + 
+                      torch.tensor(prev_val["v0"][:x_inner.size(0), :]) * 
+                      torch.tensor(prev_val["du0dy"][:x_inner.size(0), :]))
+        - (2 * Dt) * (torch.tensor(prev_val["dp1dx"][:x_inner.size(0), :]))
+    ).to(device)
     Rf_v_inner = (
-        4 * prev_val["v1"]
-        - prev_val["v0"]
-        - 2 * (2 * Dt) * (prev_val["u1"] * prev_val["dv1dx"] + 
-                          prev_val["v1"] * prev_val["dv1dy"])
-        + (2 * Dt) * (prev_val["u0"] * prev_val["dv0dx"] + 
-                      prev_val["v0"] * prev_val["dv0dy"])
-        - (2 * Dt) * (prev_val["dp1dy"])
-    )
+        4 * torch.tensor(prev_val["v1"][:x_inner.size(0), :])
+        - torch.tensor(prev_val["v0"][:x_inner.size(0), :])
+        - 2 * (2 * Dt) * (torch.tensor(prev_val["u1"][:x_inner.size(0), :]) * 
+                          torch.tensor(prev_val["dv1dx"][:x_inner.size(0), :]) + 
+                          torch.tensor(prev_val["v1"][:x_inner.size(0), :]) * 
+                          torch.tensor(prev_val["dv1dy"][:x_inner.size(0), :]))
+        + (2 * Dt) * (torch.tensor(prev_val["u0"][:x_inner.size(0), :]) * 
+                      torch.tensor(prev_val["dv0dx"][:x_inner.size(0), :]) + 
+                      torch.tensor(prev_val["v0"][:x_inner.size(0), :]) * 
+                      torch.tensor(prev_val["dv0dy"][:x_inner.size(0), :]))
+        - (2 * Dt) * (torch.tensor(prev_val["dp1dy"][:x_inner.size(0), :]))
+    ).to(device)
     Rf_u_inner_valid = (
-        4 * prev_val_valid["u1"]
-        - prev_val_valid["u0"]
-        - 2 * (2 * Dt) * (prev_val_valid["u1"] * prev_val_valid["du1dx"] + 
-                          prev_val_valid["v1"] * prev_val_valid["du1dy"])
-        + (2 * Dt) * (prev_val_valid["u0"] * prev_val_valid["du0dx"] + 
-                      prev_val_valid["v0"] * prev_val_valid["du0dy"])
-        - (2 * Dt) * (prev_val_valid["dp1dx"])
-    )
+        4 * torch.tensor(prev_val_valid["u1"][:x_inner_v.size(0), :])
+        - torch.tensor(prev_val_valid["u0"][:x_inner_v.size(0), :])
+        - 2 * (2 * Dt) * (torch.tensor(prev_val_valid["u1"][:x_inner_v.size(0), :]) * 
+                          torch.tensor(prev_val_valid["du1dx"][:x_inner_v.size(0), :]) + 
+                          torch.tensor(prev_val_valid["v1"][:x_inner_v.size(0), :]) * 
+                          torch.tensor(prev_val_valid["du1dy"][:x_inner_v.size(0), :]))
+        + (2 * Dt) * (torch.tensor(prev_val_valid["u0"][:x_inner_v.size(0), :]) * 
+                      torch.tensor(prev_val_valid["du0dx"][:x_inner_v.size(0), :]) + 
+                      torch.tensor(prev_val_valid["v0"][:x_inner_v.size(0), :]) * 
+                      torch.tensor(prev_val_valid["du0dy"][:x_inner_v.size(0), :]))
+        - (2 * Dt) * (torch.tensor(prev_val_valid["dp1dx"][:x_inner_v.size(0), :]))
+    ).to(device)
     Rf_v_inner_valid = (
-        4 * prev_val_valid["v1"]
-        - prev_val_valid["v0"]
-        - 2 * (2 * Dt) * (prev_val_valid["u1"] * prev_val_valid["dv1dx"] + 
-                          prev_val_valid["v1"] * prev_val_valid["dv1dy"])
-        + (2 * Dt) * (prev_val_valid["u0"] * prev_val_valid["dv0dx"] + 
-                      prev_val_valid["v0"] * prev_val_valid["dv0dy"])
-        - (2 * Dt) * (prev_val_valid["dp1dy"])
-    )
+        4 * torch.tensor(prev_val_valid["v1"][:x_inner_v.size(0), :])
+        - torch.tensor(prev_val_valid["v0"][:x_inner_v.size(0), :])
+        - 2 * (2 * Dt) * (torch.tensor(prev_val_valid["u1"][:x_inner_v.size(0), :]) * 
+                          torch.tensor(prev_val_valid["dv1dx"][:x_inner_v.size(0), :]) + 
+                          torch.tensor(prev_val_valid["v1"][:x_inner_v.size(0), :]) * 
+                          torch.tensor(prev_val_valid["dv1dy"][:x_inner_v.size(0), :]))
+        + (2 * Dt) * (torch.tensor(prev_val_valid["u0"][:x_inner_v.size(0), :]) * 
+                      torch.tensor(prev_val_valid["dv0dx"][:x_inner_v.size(0), :]) + 
+                      torch.tensor(prev_val_valid["v0"][:x_inner_v.size(0), :]) * 
+                      torch.tensor(prev_val_valid["dv0dy"][:x_inner_v.size(0), :]))
+        - (2 * Dt) * (torch.tensor(prev_val_valid["dp1dy"][:x_inner_v.size(0), :]))
+    ).to(device)
     Rf_u_bd = exact_sol(x_bd, y_bd, step * Dt, Re, "u")
     Rf_v_bd = exact_sol(x_bd, y_bd, step * Dt, Re, "v")
     Rf_u_bd_valid = exact_sol(x_bd_v, y_bd_v, step * Dt, Re, "u")
@@ -408,8 +434,9 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
     # Create the validation data
     mesh = CreateMesh()
     x_inner_v, y_inner_v = mesh.inner_points(10000)
-    x_bd_v, y_bd_v = mesh.boundary_points(1000)
+    x_bd_v, y_bd_v = mesh.boundary_points(100)
     nx_v, ny_v = mesh.normal_vector(x_bd_v, y_bd_v)
+    # Move the data to the device
     x_inner_v, y_inner_v = x_inner_v.to(device), y_inner_v.to(device)
     x_bd_v, y_bd_v = x_bd_v.to(device), y_bd_v.to(device)
     nx_v, ny_v = nx_v.to(device), ny_v.to(device)
@@ -417,7 +444,7 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
     # Define the parameters
     phi_params = dict(model_phi.named_parameters())
     # 10 times the parameters of phi_params
-    phi_params_flatten = nn.utils.parameters_to_vector(phi_params.values()) * 5
+    phi_params_flatten = nn.utils.parameters_to_vector(phi_params.values()) * 10
     nn.utils.vector_to_parameters(phi_params_flatten, phi_params.values())
 
     # Compute the validate right-hand side values
@@ -458,9 +485,11 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
     while overfitting:
         mu_phi = 1.0e3
         # Create the new trianing data
-        x_inner, y_inner = mesh.inner_points(500)
-        x_bd, y_bd = mesh.boundary_points(100)
+        x_inner, y_inner = mesh.inner_points(100)
+        x_bd, y_bd = mesh.boundary_points(10)
         nx, ny = mesh.normal_vector(x_bd, y_bd)
+
+        # Move the data to the device
         x_inner, y_inner = x_inner.to(device), y_inner.to(device)
         x_bd, y_bd = x_bd.to(device), y_bd.to(device)
         nx, ny = nx.to(device), ny.to(device)
@@ -592,10 +621,22 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
     """The update step for velocity and pressure fields"""
     # Unpack the training data
     x_inner, y_inner = training_data[0]
+    x_bd, y_bd = training_data[1]
     x_inner_v, y_inner_v = training_data[2]
+    x_bd_v, y_bd_v = training_data[3]
+
+    x_training = torch.vstack((x_inner, x_bd))
+    y_training = torch.vstack((y_inner, y_bd))
+    x_test = torch.vstack((x_inner_v, x_bd_v))
+    y_test = torch.vstack((y_inner_v, y_bd_v))
+
+    # Move the data to the device
+    x_training, y_training = x_training.to(device), y_training.to(device)
+    x_test, y_test = x_test.to(device), y_test.to(device)
 
     # Create the new dictionary for the update value
     new_value = dict()
+    new_value_valid = dict()
     new_value["u0"] = prev_value["u1"]
     new_value["v0"] = prev_value["v1"]
     new_value["p0"] = prev_value["p1"]
@@ -605,63 +646,123 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
     new_value["dv0dy"] = prev_value["dv1dy"]
     new_value["dp0dx"] = prev_value["dp1dx"]
     new_value["dp0dy"] = prev_value["dp1dy"]
-    new_value["u1"] = (
-        u_star_model.predict(u_star_model, u_star_params, x_inner, y_inner)
-        - (2 * Dt / 3) * phi_model.predict_dx(phi_model, phi_params, x_inner, y_inner)
-    )
-    new_value["v1"] = (
-        v_star_model.predict(v_star_model, v_star_params, x_inner, y_inner)
-        - (2 * Dt / 3) * phi_model.predict_dy(phi_model, phi_params, x_inner, y_inner)
-    )
-    new_value["p1"] = (
-        prev_value["p0"]
-        + phi_model.predict(phi_model, phi_params, x_inner, y_inner)
-        - (1 / Re) * (
-            phi_model.predict_dx(u_star_model, u_star_params, x_inner, y_inner)
-            + phi_model.predict_dy(v_star_model, v_star_params, x_inner, y_inner)
-        )
-    )
-    new_value["du1dx"] = (
-        u_star_model.predict_dx(u_star_model, u_star_params, x_inner, y_inner)
-        - (2 * Dt / 3) * phi_model.predict_dxx(phi_model, phi_params, x_inner, y_inner)
-    )
-    new_value["du1dy"] = (
-        u_star_model.predict_dy(u_star_model, u_star_params, x_inner, y_inner)
-        - (2 * Dt / 3) * phi_model.predict_dxy(phi_model, phi_params, x_inner, y_inner)
-    )
-    new_value["dv1dx"] = (
-        v_star_model.predict_dx(v_star_model, v_star_params, x_inner, y_inner)
-        - (2 * Dt / 3) * phi_model.predict_dyx(phi_model, phi_params, x_inner, y_inner)
-    )
-    new_value["dv1dy"] = (
-        v_star_model.predict_dy(v_star_model, v_star_params, x_inner, y_inner)
-        - (2 * Dt / 3) * phi_model.predict_dyy(phi_model, phi_params, x_inner, y_inner)
-    )
-    new_value["dp1dx"] = (
-        prev_value["dp0dx"]
-        + phi_model.predict_dx(phi_model, phi_params, x_inner, y_inner)
-        - (1 / Re) * (
-            phi_model.predict_dxx(u_star_model, u_star_params, x_inner, y_inner)
-            + phi_model.predict_dyx(v_star_model, v_star_params, x_inner, y_inner)
-        )
-    )
-    new_value["dp1dy"] = (
-        prev_value["dp0dy"]
-        + phi_model.predict_dy(phi_model, phi_params, x_inner, y_inner)
-        - (1 / Re) * (
-            phi_model.predict_dxy(u_star_model, u_star_params, x_inner, y_inner)
-            + phi_model.predict_dyy(v_star_model, v_star_params, x_inner, y_inner)
-        )
-    )
 
-    return new_value
+    new_value_valid["u0"] = prev_value_valid["u1"]
+    new_value_valid["v0"] = prev_value_valid["v1"]
+    new_value_valid["p0"] = prev_value_valid["p1"]
+    new_value_valid["du0dx"] = prev_value_valid["du1dx"]
+    new_value_valid["du0dy"] = prev_value_valid["du1dy"]
+    new_value_valid["dv0dx"] = prev_value_valid["dv1dx"]
+    new_value_valid["dv0dy"] = prev_value_valid["dv1dy"]
+    new_value_valid["dp0dx"] = prev_value_valid["dp1dx"]
+    new_value_valid["dp0dy"] = prev_value_valid["dp1dy"]
+
+    new_value["u1"] = (
+        u_star_model.predict(u_star_model, u_star_params, x_training, y_training)
+        - (2 * Dt / 3) * phi_model.predict_dx(phi_model, phi_params, x_training, y_training)
+    ).cpu().detach().numpy()
+    new_value["v1"] = (
+        v_star_model.predict(v_star_model, v_star_params, x_training, y_training)
+        - (2 * Dt / 3) * phi_model.predict_dy(phi_model, phi_params, x_training, y_training)
+    ).cpu().detach().numpy()
+    new_value["p1"] = (
+        torch.tensor(prev_value["p0"], device=device)
+        + phi_model.predict(phi_model, phi_params, x_training, y_training)
+        - (1 / Re) * (
+            phi_model.predict_dx(u_star_model, u_star_params, x_training, y_training)
+            + phi_model.predict_dy(v_star_model, v_star_params, x_training, y_training)
+        )
+    ).cpu().detach().numpy()
+    new_value["du1dx"] = (
+        u_star_model.predict_dx(u_star_model, u_star_params, x_training, y_training)
+        - (2 * Dt / 3) * phi_model.predict_dxx(phi_model, phi_params, x_training, y_training)
+    ).cpu().detach().numpy()
+    new_value["du1dy"] = (
+        u_star_model.predict_dy(u_star_model, u_star_params, x_training, y_training)
+        - (2 * Dt / 3) * phi_model.predict_dxy(phi_model, phi_params, x_training, y_training)
+    ).cpu().detach().numpy()
+    new_value["dv1dx"] = (
+        v_star_model.predict_dx(v_star_model, v_star_params, x_training, y_training)
+        - (2 * Dt / 3) * phi_model.predict_dyx(phi_model, phi_params, x_training, y_training)
+    ).cpu().detach().numpy()
+    new_value["dv1dy"] = (
+        v_star_model.predict_dy(v_star_model, v_star_params, x_training, y_training)
+        - (2 * Dt / 3) * phi_model.predict_dyy(phi_model, phi_params, x_training, y_training)
+    ).cpu().detach().numpy()
+    new_value["dp1dx"] = (
+        torch.tensor(prev_value["dp0dx"], device=device)
+        + phi_model.predict_dx(phi_model, phi_params, x_training, y_training)
+        - (1 / Re) * (
+            phi_model.predict_dxx(u_star_model, u_star_params, x_training, y_training)
+            + phi_model.predict_dyx(v_star_model, v_star_params, x_training, y_training)
+        )
+    ).cpu().detach().numpy()
+    new_value["dp1dy"] = (
+        torch.tensor(prev_value["dp0dy"], device=device)
+        + phi_model.predict_dy(phi_model, phi_params, x_training, y_training)
+        - (1 / Re) * (
+            phi_model.predict_dxy(u_star_model, u_star_params, x_training, y_training)
+            + phi_model.predict_dyy(v_star_model, v_star_params, x_training, y_training)
+        )
+    ).cpu().detach().numpy()
+
+    new_value_valid["u1"] = (
+        u_star_model.predict(u_star_model, u_star_params, x_test, y_test)
+        - (2 * Dt / 3) * phi_model.predict_dx(phi_model, phi_params, x_test, y_test)
+    ).cpu().detach().numpy()
+    new_value_valid["v1"] = (
+        v_star_model.predict(v_star_model, v_star_params, x_test, y_test)
+        - (2 * Dt / 3) * phi_model.predict_dy(phi_model, phi_params, x_test, y_test)
+    ).cpu().detach().numpy()
+    new_value_valid["p1"] = (
+        torch.tensor(prev_value_valid["p0"], device=device)
+        + phi_model.predict(phi_model, phi_params, x_test, y_test)
+        - (1 / Re) * (
+            phi_model.predict_dx(u_star_model, u_star_params, x_test, y_test)
+            + phi_model.predict_dy(v_star_model, v_star_params, x_test, y_test)
+        )
+    ).cpu().detach().numpy()
+    new_value_valid["du1dx"] = (
+        u_star_model.predict_dx(u_star_model, u_star_params, x_test, y_test)
+        - (2 * Dt / 3) * phi_model.predict_dxx(phi_model, phi_params, x_test, y_test)
+    ).cpu().detach().numpy()
+    new_value_valid["du1dy"] = (
+        u_star_model.predict_dy(u_star_model, u_star_params, x_test, y_test)
+        - (2 * Dt / 3) * phi_model.predict_dxy(phi_model, phi_params, x_test, y_test)
+    ).cpu().detach().numpy()
+    new_value_valid["dv1dx"] = (
+        v_star_model.predict_dx(v_star_model, v_star_params, x_test, y_test)
+        - (2 * Dt / 3) * phi_model.predict_dyx(phi_model, phi_params, x_test, y_test)
+    ).cpu().detach().numpy()
+    new_value_valid["dv1dy"] = (
+        v_star_model.predict_dy(v_star_model, v_star_params, x_test, y_test)
+        - (2 * Dt / 3) * phi_model.predict_dyy(phi_model, phi_params, x_test, y_test)
+    ).cpu().detach().numpy()
+    new_value_valid["dp1dx"] = (
+        torch.tensor(prev_value_valid["dp0dx"], device=device)
+        + phi_model.predict_dx(phi_model, phi_params, x_test, y_test)
+        - (1 / Re) * (
+            phi_model.predict_dxx(u_star_model, u_star_params, x_test, y_test)
+            + phi_model.predict_dyx(v_star_model, v_star_params, x_test, y_test)
+        )
+    ).cpu().detach().numpy()
+    new_value_valid["dp1dy"] = (
+        torch.tensor(prev_value_valid["dp0dy"], device=device)
+        + phi_model.predict_dy(phi_model, phi_params, x_test, y_test)
+        - (1 / Re) * (
+            phi_model.predict_dxy(u_star_model, u_star_params, x_test, y_test)
+            + phi_model.predict_dyy(v_star_model, v_star_params, x_test, y_test)
+        )
+    ).cpu().detach().numpy()
+
+    return new_value, new_value_valid
 
 
 def main():
     # Define the neural network
     u_star_model = PinnModel([2, 40, 1]).to(device)
     v_star_model = PinnModel([2, 40, 1]).to(device)
-    phi_model = PinnModel([2, 20, 20, 20, 20, 20, 20, 20, 1]).to(device)
+    phi_model = PinnModel([2, 100, 1]).to(device)
 
     total_params_u_star = u_star_model.num_total_params()
     total_params_v_star = v_star_model.num_total_params()
@@ -673,16 +774,10 @@ def main():
     # Define the training data
     mesh = CreateMesh()
     x_inner, y_inner = mesh.inner_points(100)
-    x_inner_valid, y_inner_valid = mesh.inner_points(10000)
     x_bd, y_bd = mesh.boundary_points(10)
-    x_bd_valid, y_bd_valid = mesh.boundary_points(1000)
+    x_inner_valid, y_inner_valid = mesh.inner_points(90000)
+    x_bd_valid, y_bd_valid = mesh.boundary_points(300)
     # Compute the boundary normal vector
-
-    # Move the data to the device
-    x_inner, y_inner = x_inner.to(device), y_inner.to(device)
-    x_bd, y_bd = x_bd.to(device), y_bd.to(device)
-    x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
-    x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
 
     # Pack the training data
     training_data = (
@@ -693,57 +788,98 @@ def main():
     )
 
     # Initialize the previous value
+    x_training = torch.vstack((x_inner, x_bd))
+    y_training = torch.vstack((y_inner, y_bd))
+    x_test = torch.vstack((x_inner_valid, x_bd_valid))
+    y_test = torch.vstack((y_inner_valid, y_bd_valid))
+    
     prev_value = dict()
-    prev_value["u0"] = exact_sol(x_inner, y_inner, 0.0 * Dt, Re, "u")
-    prev_value["v0"] = exact_sol(x_inner, y_inner, 0.0 * Dt, Re, "v")
-    prev_value["p0"] = exact_sol(x_inner, y_inner, 0.0 * Dt, Re, "p")
-    prev_value["u1"] = exact_sol(x_inner, y_inner, 1.0 * Dt, Re, "u")
-    prev_value["v1"] = exact_sol(x_inner, y_inner, 1.0 * Dt, Re, "v")
-    prev_value["p1"] = exact_sol(x_inner, y_inner, 1.0 * Dt, Re, "p")
-    prev_value["du0dx"], prev_value["du0dy"] = vmap(
-        grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner.reshape(-1), y_inner.reshape(-1), 0.0 * Dt, Re, "u")
-    prev_value["dv0dx"], prev_value["dv0dy"] = vmap(
-        grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner.reshape(-1), y_inner.reshape(-1), 0.0 * Dt, Re, "v")
-    prev_value["du1dx"], prev_value["du1dy"] = vmap(
-        grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner.reshape(-1), y_inner.reshape(-1), 1.0 * Dt, Re, "u")
-    prev_value["dv1dx"], prev_value["dv1dy"] = vmap(
-        grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner.reshape(-1), y_inner.reshape(-1), 1.0 * Dt, Re, "v")
-    prev_value["dp0dx"], prev_value["dp0dy"] = vmap(
-        grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner.reshape(-1), y_inner.reshape(-1), 0.0 * Dt, Re, "p")
-    prev_value["dp1dx"], prev_value["dp1dy"] = vmap(
-        grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner.reshape(-1), y_inner.reshape(-1), 1.0 * Dt, Re, "p")
+    prev_value["u0"] = exact_sol(x_training, y_training, 0.0 * Dt, Re, "u").detach().numpy()
+    prev_value["v0"] = exact_sol(x_training, y_training, 0.0 * Dt, Re, "v").detach().numpy()
+    prev_value["p0"] = exact_sol(x_training, y_training, 0.0 * Dt, Re, "p").detach().numpy()
+    prev_value["u1"] = exact_sol(x_training, y_training, 1.0 * Dt, Re, "u").detach().numpy()
+    prev_value["v1"] = exact_sol(x_training, y_training, 1.0 * Dt, Re, "v").detach().numpy()
+    prev_value["p1"] = exact_sol(x_training, y_training, 1.0 * Dt, Re, "p").detach().numpy()
+    prev_value["du0dx"] = vmap(
+        grad(exact_sol, argnums=0), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_training.reshape(-1), y_training.reshape(-1), 0.0 * Dt, Re, "u").detach().numpy()
+    prev_value["du0dy"] = vmap(
+        grad(exact_sol, argnums=1), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_training.reshape(-1), y_training.reshape(-1), 0.0 * Dt, Re, "u").detach().numpy()
+    prev_value["dv0dx"] = vmap(
+        grad(exact_sol, argnums=0), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_training.reshape(-1), y_training.reshape(-1), 0.0 * Dt, Re, "v").detach().numpy()
+    prev_value["dv0dy"] = vmap(
+        grad(exact_sol, argnums=1), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_training.reshape(-1), y_training.reshape(-1), 0.0 * Dt, Re, "v").detach().numpy()
+    prev_value["du1dx"] = vmap(
+        grad(exact_sol, argnums=0), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_training.reshape(-1), y_training.reshape(-1), 1.0 * Dt, Re, "u").detach().numpy()
+    prev_value["du1dy"] = vmap(
+        grad(exact_sol, argnums=1), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_training.reshape(-1), y_training.reshape(-1), 1.0 * Dt, Re, "u").detach().numpy()
+    prev_value["dv1dx"] = vmap(
+        grad(exact_sol, argnums=0), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_training.reshape(-1), y_training.reshape(-1), 1.0 * Dt, Re, "v").detach().numpy()
+    prev_value["dv1dy"] = vmap(
+        grad(exact_sol, argnums=1), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_training.reshape(-1), y_training.reshape(-1), 1.0 * Dt, Re, "v").detach().numpy()
+    prev_value["dp0dx"] = vmap(
+        grad(exact_sol, argnums=0), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_training.reshape(-1), y_training.reshape(-1), 0.0 * Dt, Re, "p").detach().numpy()
+    prev_value["dp0dy"] = vmap(
+        grad(exact_sol, argnums=1), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_training.reshape(-1), y_training.reshape(-1), 0.0 * Dt, Re, "p").detach().numpy()
+    prev_value["dp1dx"] = vmap(
+        grad(exact_sol, argnums=0), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_training.reshape(-1), y_training.reshape(-1), 1.0 * Dt, Re, "p").detach().numpy()
+    prev_value["dp1dy"] = vmap(
+        grad(exact_sol, argnums=1), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_training.reshape(-1), y_training.reshape(-1), 1.0 * Dt, Re, "p").detach().numpy()
 
     prev_value_valid = dict()
-    prev_value_valid["u0"] = exact_sol(x_inner_valid, y_inner_valid, 0.0 * Dt, Re, "u")
-    prev_value_valid["v0"] = exact_sol(x_inner_valid, y_inner_valid, 0.0 * Dt, Re, "v")
-    prev_value_valid["p0"] = exact_sol(x_inner_valid, y_inner_valid, 0.0 * Dt, Re, "p")
-    prev_value_valid["u1"] = exact_sol(x_inner_valid, y_inner_valid, 1.0 * Dt, Re, "u")
-    prev_value_valid["v1"] = exact_sol(x_inner_valid, y_inner_valid, 1.0 * Dt, Re, "v")
-    prev_value_valid["p1"] = exact_sol(x_inner_valid, y_inner_valid, 1.0 * Dt, Re, "p")
-    prev_value_valid["du0dx"], prev_value_valid["du0dy"] = vmap(
-        grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner_valid.reshape(-1), y_inner_valid.reshape(-1), 0.0 * Dt, Re, "u")
-    prev_value_valid["dv0dx"], prev_value_valid["dv0dy"] = vmap(
-        grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner_valid.reshape(-1), y_inner_valid.reshape(-1), 0.0 * Dt, Re, "v")
-    prev_value_valid["du1dx"], prev_value_valid["du1dy"] = vmap(
-        grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner_valid.reshape(-1), y_inner_valid.reshape(-1), 1.0 * Dt, Re, "u")
-    prev_value_valid["dv1dx"], prev_value_valid["dv1dy"] = vmap(
-        grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner_valid.reshape(-1), y_inner_valid.reshape(-1), 1.0 * Dt, Re, "v")
-    prev_value_valid["dp0dx"], prev_value_valid["dp0dy"] = vmap(
-        grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner_valid.reshape(-1), y_inner_valid.reshape(-1), 0.0 * Dt, Re, "p")
-    prev_value_valid["dp1dx"], prev_value_valid["dp1dy"] = vmap(
-        grad(exact_sol, argnums=(0, 1)), in_dims=(0, 0, None, None, None), out_dims=0
-    )(x_inner_valid.reshape(-1), y_inner_valid.reshape(-1), 1.0 * Dt, Re, "p")
+    prev_value_valid["u0"] = exact_sol(x_test, y_test, 0.0 * Dt, Re, "u").detach().numpy()
+    prev_value_valid["v0"] = exact_sol(x_test, y_test, 0.0 * Dt, Re, "v").detach().numpy()
+    prev_value_valid["p0"] = exact_sol(x_test, y_test, 0.0 * Dt, Re, "p").detach().numpy()
+    prev_value_valid["u1"] = exact_sol(x_test, y_test, 1.0 * Dt, Re, "u").detach().numpy()
+    prev_value_valid["v1"] = exact_sol(x_test, y_test, 1.0 * Dt, Re, "v").detach().numpy()
+    prev_value_valid["p1"] = exact_sol(x_test, y_test, 1.0 * Dt, Re, "p").detach().numpy()
+    prev_value_valid["du0dx"] = vmap(
+        grad(exact_sol, argnums=0), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_test.reshape(-1), y_test.reshape(-1), 0.0 * Dt, Re, "u").detach().numpy()
+    prev_value_valid["du0dy"] = vmap(
+        grad(exact_sol, argnums=1), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_test.reshape(-1), y_test.reshape(-1), 0.0 * Dt, Re, "u").detach().numpy()
+    prev_value_valid["dv0dx"] = vmap(
+        grad(exact_sol, argnums=0), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_test.reshape(-1), y_test.reshape(-1), 0.0 * Dt, Re, "v").detach().numpy()
+    prev_value_valid["dv0dy"] = vmap(
+        grad(exact_sol, argnums=1), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_test.reshape(-1), y_test.reshape(-1), 0.0 * Dt, Re, "v").detach().numpy()
+    prev_value_valid["du1dx"] = vmap(
+        grad(exact_sol, argnums=0), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_test.reshape(-1), y_test.reshape(-1), 1.0 * Dt, Re, "u").detach().numpy()
+    prev_value_valid["du1dy"] = vmap(
+        grad(exact_sol, argnums=1), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_test.reshape(-1), y_test.reshape(-1), 1.0 * Dt, Re, "u").detach().numpy()
+    prev_value_valid["dv1dx"] = vmap(
+        grad(exact_sol, argnums=0), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_test.reshape(-1), y_test.reshape(-1), 1.0 * Dt, Re, "v").detach().numpy()
+    prev_value_valid["dv1dy"] = vmap(
+        grad(exact_sol, argnums=1), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_test.reshape(-1), y_test.reshape(-1), 1.0 * Dt, Re, "v").detach().numpy()
+    prev_value_valid["dp0dx"] = vmap(
+        grad(exact_sol, argnums=0), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_test.reshape(-1), y_test.reshape(-1), 0.0 * Dt, Re, "p").detach().numpy()
+    prev_value_valid["dp0dy"] = vmap(
+        grad(exact_sol, argnums=1), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_test.reshape(-1), y_test.reshape(-1), 0.0 * Dt, Re, "p").detach().numpy()
+    prev_value_valid["dp1dx"] = vmap(
+        grad(exact_sol, argnums=0), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_test.reshape(-1), y_test.reshape(-1), 1.0 * Dt, Re, "p").detach().numpy()
+    prev_value_valid["dp1dy"] = vmap(
+        grad(exact_sol, argnums=1), in_dims=(0, 0, None, None, None), out_dims=0
+    )(x_test.reshape(-1), y_test.reshape(-1), 1.0 * Dt, Re, "p").detach().numpy()
 
     # reshape the values to (n, 1)
     for key, key_v in iter(zip(prev_value, prev_value_valid)):
@@ -768,7 +904,7 @@ def main():
     print("Finish the projection step ...")
 
     # Update the velocity field and pressure field
-    new_value = update_step(
+    new_value, new_value_valid = update_step(
         training_data,
         u_star_model,
         v_star_model,
@@ -780,19 +916,22 @@ def main():
         prev_value_valid
     )
 
+    prev_value.update(new_value)
+    prev_value_valid.update(new_value_valid)
+    print("Finish the update step ...")
+
     # Plot the intermediate velocity field and phi field
-    x_plot, y_plot = torch.meshgrid(
-        torch.linspace(0, 1, 100), torch.linspace(0, 1, 100), indexing="xy"
-    )
-    x_plot, y_plot = x_plot.reshape(-1, 1).to(device), y_plot.reshape(-1, 1).to(device)
-    u_star = u_star_model.predict(u_star_model, u_star_params, x_plot, y_plot).cpu().detach().numpy()
-    v_star = v_star_model.predict(v_star_model, v_star_params, x_plot, y_plot).cpu().detach().numpy()
-    phi = phi_model.predict(phi_model, phi_params, x_plot, y_plot).cpu().detach().numpy()
+    x_plot = torch.vstack((x_inner_valid, x_bd_valid))
+    y_plot = torch.vstack((y_inner_valid, y_bd_valid))
+    x_plot, y_plot = x_plot.reshape(-1, 1), y_plot.reshape(-1, 1)
+    u_star = u_star_model.predict(u_star_model, u_star_params, x_plot.to(device), y_plot.to(device)).cpu().detach().numpy()
+    v_star = v_star_model.predict(v_star_model, v_star_params, x_plot.to(device), y_plot.to(device)).cpu().detach().numpy()
+    phi = phi_model.predict(phi_model, phi_params, x_plot.to(device), y_plot.to(device)).cpu().detach().numpy()
 
     fig, axs = plt.subplots(nrows=1, ncols=3, subplot_kw={"projection": "3d"})
-    sca1 = axs[0].scatter(x_plot.cpu(), y_plot.cpu(), u_star, c=u_star, cmap="viridis")
-    sca2 = axs[1].scatter(x_plot.cpu(), y_plot.cpu(), v_star, c=v_star, cmap="viridis")
-    sca3 = axs[2].scatter(x_plot.cpu(), y_plot.cpu(), phi, c=phi, cmap="viridis")
+    sca1 = axs[0].scatter(x_plot, y_plot, u_star, c=u_star, cmap="viridis", s=1)
+    sca2 = axs[1].scatter(x_plot, y_plot, v_star, c=v_star, cmap="viridis", s=1)
+    sca3 = axs[2].scatter(x_plot, y_plot, phi, c=phi, cmap="viridis", s=1)
     fig.colorbar(sca1, ax=axs[0], shrink=0.3, aspect=10, pad=0.15)
     fig.colorbar(sca2, ax=axs[1], shrink=0.3, aspect=10, pad=0.15)
     fig.colorbar(sca3, ax=axs[2], shrink=0.3, aspect=10, pad=0.15)
@@ -808,8 +947,26 @@ def main():
     plt.show()
 
     # Plot the velocity field and pressure field
+    u_pred = prev_value_valid["u1"]
+    v_pred = prev_value_valid["v1"]
+    p_pred = prev_value_valid["p1"]
     fig, axs = plt.subplots(nrows=1, ncols=3, subplot_kw={"projection": "3d"})
-    sca1 = axs[0].scatter(x_plot.cpu(), y_plot.cpu(), new_value["u1"], c=new_value["u1"], cmap="viridis")
+    sca1 = axs[0].scatter(x_plot, y_plot, u_pred, c=u_pred, cmap="viridis", s=1)
+    sca2 = axs[1].scatter(x_plot, y_plot, v_pred, c=v_pred, cmap="viridis", s=1)
+    sca3 = axs[2].scatter(x_plot, y_plot, p_pred, c=p_pred, cmap="viridis", s=1)
+    fig.colorbar(sca1, ax=axs[0], shrink=0.3, aspect=10, pad=0.15)
+    fig.colorbar(sca2, ax=axs[1], shrink=0.3, aspect=10, pad=0.15)
+    fig.colorbar(sca3, ax=axs[2], shrink=0.3, aspect=10, pad=0.15)
+    axs[0].set_xlabel("x")
+    axs[1].set_xlabel("x")
+    axs[2].set_xlabel("x")
+    axs[0].set_ylabel("y")
+    axs[1].set_ylabel("y")
+    axs[2].set_ylabel("y")
+    axs[0].set_title("Predicted u")
+    axs[1].set_title("Predicted v")
+    axs[2].set_title("Predicted p")
+    plt.show()
 
 
 if __name__ == "__main__":
