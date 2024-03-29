@@ -454,7 +454,7 @@ def projection_step(u_star_model, v_star_model, phi_model, psi_model, u_star_par
     phi_params = dict(phi_model.named_parameters())
     psi_params = dict(psi_model.named_parameters())
     num_params_phi = phi_model.num_total_params()
-    num_params_psi = psi_model.num_total_params()
+    # num_params_psi = psi_model.num_total_params()
     
     # Compute the validate right-hand side values
     Rf_inner_1_valid = u_star_model.predict(u_star_model, u_star_params, x_inner_v, y_inner_v)
