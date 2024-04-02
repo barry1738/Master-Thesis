@@ -12,8 +12,11 @@ Step 2: Project the intermediate velocity field onto the space of divergence-fre
 Step 3: Update the velocity and pressure fields
 """
 
-
+import os
 import torch
+import matplotlib
+matplotlib.use("Agg")
+import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
 from torch.func import functional_call, vmap, jacrev, vjp, grad
@@ -24,6 +27,10 @@ from utilities import exact_sol, qr_decomposition, cholesky
 torch.set_default_dtype(torch.float64)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using {device} device")
+
+# Set the font size in figures
+plt.rcParams.update({"font.size": 12})
+
 
 # Define the neural network
 class PinnModel(nn.Module):
@@ -409,26 +416,23 @@ def prediction_step(model_u_star, model_v_star, training_data, prev_val, prev_va
             break
 
     # Plot the loss function
-    fig, ax = plt.subplots()
-    ax.semilogy(savedloss_u, "k-", label="training loss")
-    ax.semilogy(savedloss_u_valid, "r--", label="test loss")
-    ax.set_xlabel("Iteration")
-    ax.set_ylabel("Loss")
-    ax.legend()
-    plt.show()
-
-    fig, ax = plt.subplots()
-    ax.semilogy(savedloss_v, "k-", label="training loss")
-    ax.semilogy(savedloss_v_valid, "r--", label="test loss")
-    ax.set_xlabel("Iteration")
-    ax.set_ylabel("Loss")
-    ax.legend()
-    plt.show()
+    plot_loss_figure(
+        savedloss_u,
+        savedloss_u_valid,
+        r"Loss function of $u^*$",
+        f"loss_u_star_{step}.png",
+    )
+    plot_loss_figure(
+        savedloss_v,
+        savedloss_v_valid,
+        r"Loss function of $v^*$",
+        f"loss_v_star_{step}.png",
+    )
 
     return u_star_params, v_star_params
 
 
-def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star_params):
+def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star_params, step):
     """The projection step of the projection method"""
 
     # Create the validation data
@@ -478,12 +482,12 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
     tol = 1.0e-9
     alpha = 1.0
     beta = 1.0
-    savedloss_phi = []
-    savedloss_phi_valid = []
+    savedloss = []
+    savedloss_valid = []
     overfitting = True
 
     while overfitting:
-        mu_phi = 1.0e3
+        mu = 1.0e3
         # Create the new trianing data
         x_inner, y_inner = mesh.inner_points(100)
         x_bd, y_bd = mesh.boundary_points(10)
@@ -537,17 +541,17 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
 
             # Solve the non-linear system
             # p_phi = cholesky(jacobian, l_vec, mu_phi, device)
-            p_phi = qr_decomposition(jacobian, l_vec, mu_phi, device)
+            p_phi = qr_decomposition(jacobian, l_vec, mu, device)
             # Update the parameters
             phi_params_flatten = nn.utils.parameters_to_vector(phi_params.values())
             phi_params_flatten += p_phi
             nn.utils.vector_to_parameters(phi_params_flatten, phi_params.values())
 
             # Compute the loss function
-            loss_phi = torch.sum(l_vec_res**2) + torch.sum(l_vec_bd**2)
-            loss_phi_valid = torch.sum(l_vec_res_valid**2) + torch.sum(l_vec_bd_valid**2)
-            savedloss_phi.append(loss_phi.item())
-            savedloss_phi_valid.append(loss_phi_valid.item())
+            loss = torch.sum(l_vec_res**2) + torch.sum(l_vec_bd**2)
+            loss_valid = torch.sum(l_vec_res_valid**2) + torch.sum(l_vec_bd_valid**2)
+            savedloss.append(loss.item())
+            savedloss_valid.append(loss_valid.item())
 
             # Update alpha and beta
             if iter % 100 == 0:
@@ -583,12 +587,12 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
                 print(f"alpha: {alpha:.2f}, beta: {beta:.2f}")
 
             if iter % 5 == 0:
-                print(f"iter = {iter}, loss_phi = {loss_phi.item():.2e}, mu_phi = {mu_phi:.1e}")
+                print(f"iter = {iter}, loss = {loss.item():.2e}, mu = {mu:.1e}")
 
             # Stop the training if the loss function is converged
-            if (iter == Niter - 1) or (loss_phi < tol):
-                print(f"iter = {iter}, loss_phi = {loss_phi.item():.2e}, mu_phi = {mu_phi:.1e}")
-                if (loss_phi_valid / loss_phi) < 10.0: 
+            if (iter == Niter - 1) or (loss < tol):
+                print(f"iter = {iter}, loss = {loss.item():.2e}, mu = {mu:.1e}")
+                if (loss_valid / loss) < 10.0: 
                     overfitting = False
                     print('Successful training phi ...')
                 else:
@@ -598,19 +602,18 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
                 
             # Update the parameter mu
             if iter % 3 == 0:
-                if savedloss_phi[iter] > savedloss_phi[iter - 1]:
-                    mu_phi = min(2 * mu_phi, 1e8)
+                if savedloss[iter] > savedloss[iter - 1]:
+                    mu = min(2 * mu, 1e8)
                 else:
-                    mu_phi = max(mu_phi / 3, 1e-10)
+                    mu = max(mu / 3, 1e-10)
 
         # Plot the loss function
-        fig, ax = plt.subplots()
-        ax.semilogy(savedloss_phi, "k-", label="training loss")
-        ax.semilogy(savedloss_phi_valid, "r--", label="test loss")
-        ax.set_xlabel("Iteration")
-        ax.set_ylabel("Loss")
-        ax.legend()
-        plt.show()
+        plot_loss_figure(
+            savedloss,
+            savedloss_valid,
+            r"Loss function of $\phi$ and $\psi$",
+            f"loss_phi_{step}.png",
+        )
 
     return phi_params
 
@@ -666,7 +669,7 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
         - (2 * Dt / 3) * phi_model.predict_dy(phi_model, phi_params, x_training, y_training)
     ).cpu().detach().numpy()
     new_value["p1"] = (
-        torch.tensor(prev_value["p0"], device=device)
+        torch.tensor(prev_value["p1"], device=device)
         + phi_model.predict(phi_model, phi_params, x_training, y_training)
         - (1 / Re) * (
             phi_model.predict_dx(u_star_model, u_star_params, x_training, y_training)
@@ -690,7 +693,7 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
         - (2 * Dt / 3) * phi_model.predict_dyy(phi_model, phi_params, x_training, y_training)
     ).cpu().detach().numpy()
     new_value["dp1dx"] = (
-        torch.tensor(prev_value["dp0dx"], device=device)
+        torch.tensor(prev_value["dp1dx"], device=device)
         + phi_model.predict_dx(phi_model, phi_params, x_training, y_training)
         - (1 / Re) * (
             phi_model.predict_dxx(u_star_model, u_star_params, x_training, y_training)
@@ -698,7 +701,7 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
         )
     ).cpu().detach().numpy()
     new_value["dp1dy"] = (
-        torch.tensor(prev_value["dp0dy"], device=device)
+        torch.tensor(prev_value["dp1dy"], device=device)
         + phi_model.predict_dy(phi_model, phi_params, x_training, y_training)
         - (1 / Re) * (
             phi_model.predict_dxy(u_star_model, u_star_params, x_training, y_training)
@@ -715,7 +718,7 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
         - (2 * Dt / 3) * phi_model.predict_dy(phi_model, phi_params, x_test, y_test)
     ).cpu().detach().numpy()
     new_value_valid["p1"] = (
-        torch.tensor(prev_value_valid["p0"], device=device)
+        torch.tensor(prev_value_valid["p1"], device=device)
         + phi_model.predict(phi_model, phi_params, x_test, y_test)
         - (1 / Re) * (
             phi_model.predict_dx(u_star_model, u_star_params, x_test, y_test)
@@ -739,7 +742,7 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
         - (2 * Dt / 3) * phi_model.predict_dyy(phi_model, phi_params, x_test, y_test)
     ).cpu().detach().numpy()
     new_value_valid["dp1dx"] = (
-        torch.tensor(prev_value_valid["dp0dx"], device=device)
+        torch.tensor(prev_value_valid["dp1dx"], device=device)
         + phi_model.predict_dx(phi_model, phi_params, x_test, y_test)
         - (1 / Re) * (
             phi_model.predict_dxx(u_star_model, u_star_params, x_test, y_test)
@@ -747,7 +750,7 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
         )
     ).cpu().detach().numpy()
     new_value_valid["dp1dy"] = (
-        torch.tensor(prev_value_valid["dp0dy"], device=device)
+        torch.tensor(prev_value_valid["dp1dy"], device=device)
         + phi_model.predict_dy(phi_model, phi_params, x_test, y_test)
         - (1 / Re) * (
             phi_model.predict_dxy(u_star_model, u_star_params, x_test, y_test)
@@ -756,6 +759,34 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
     ).cpu().detach().numpy()
 
     return new_value, new_value_valid
+
+
+def plot_loss_figure(training_loss, test_loss, title, file_name):
+    """Plot the loss function"""
+    fig, ax = plt.subplots(layout="constrained")
+    ax.semilogy(training_loss, "k-", label="training loss")
+    ax.semilogy(test_loss, "r--", label="test loss")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Loss")
+    ax.set_title(title)
+    ax.legend()
+    # fig.tight_layout()
+    plt.savefig(pwd + dir_name + "figures\\loss\\" + file_name, dpi=150)
+    plt.close()
+
+
+def plot_figure(x_data, y_data, plot_val, title, file_name):
+    """Plot the figure"""
+    fig, ax = plt.subplots(subplot_kw={"projection": "3d"}, layout="constrained")
+    ax.scatter(x_data, y_data, plot_val, c=plot_val, cmap="coolwarm", s=5)
+    # fig.colorbar(sca, shrink=0.5, aspect=10, pad=0.1)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.zaxis.set_tick_params(pad=5)
+    # ax.axes.zaxis.set_ticklabels([])
+    ax.set_title(title)
+    plt.savefig(pwd + dir_name + "figures\\" + file_name, dpi=150)
+    plt.close()
 
 
 def main():
@@ -794,6 +825,8 @@ def main():
     y_test = torch.vstack((y_inner_valid, y_bd_valid))
     
     prev_value = dict()
+    prev_value["x_data"] = x_training.detach().numpy()
+    prev_value["y_data"] = y_training.detach().numpy()
     prev_value["u0"] = exact_sol(x_training, y_training, 0.0 * Dt, Re, "u").detach().numpy()
     prev_value["v0"] = exact_sol(x_training, y_training, 0.0 * Dt, Re, "v").detach().numpy()
     prev_value["p0"] = exact_sol(x_training, y_training, 0.0 * Dt, Re, "p").detach().numpy()
@@ -838,6 +871,8 @@ def main():
     )(x_training.reshape(-1), y_training.reshape(-1), 1.0 * Dt, Re, "p").detach().numpy()
 
     prev_value_valid = dict()
+    prev_value_valid["x_data"] = x_test.detach().numpy()
+    prev_value_valid["y_data"] = y_test.detach().numpy()
     prev_value_valid["u0"] = exact_sol(x_test, y_test, 0.0 * Dt, Re, "u").detach().numpy()
     prev_value_valid["v0"] = exact_sol(x_test, y_test, 0.0 * Dt, Re, "v").detach().numpy()
     prev_value_valid["p0"] = exact_sol(x_test, y_test, 0.0 * Dt, Re, "p").detach().numpy()
@@ -887,89 +922,121 @@ def main():
         prev_value_valid[key_v] = prev_value_valid[key_v].reshape(-1, 1)
         # print(f'prev_value["{key}"]: {prev_value[key].size()}')
         # print(f'prev_value_valid["{key_v}"]: {prev_value_valid[key_v].size()}')
-    
-    # Predict the intermediate velocity field (u*, v*)
-    u_star_params, v_star_params = prediction_step(
-        u_star_model, v_star_model, training_data, prev_value, prev_value_valid, 2
-    )
-    u_star_model.load_state_dict(u_star_params)
-    v_star_model.load_state_dict(v_star_params)
-    print("Finish the prediction step ...")
 
-    # Project the intermediate velocity field onto the space of divergence-free fields
-    phi_params = projection_step(
-        u_star_model, v_star_model, phi_model, u_star_params, v_star_params
-    )
-    phi_model.load_state_dict(phi_params)
-    print("Finish the projection step ...")
+    torch.save(prev_value, pwd + dir_name + "data\\initial_value_1.pt")
+    torch.save(prev_value_valid, pwd + dir_name + "data\\initial_value_valid_1.pt")
 
-    # Update the velocity field and pressure field
-    new_value, new_value_valid = update_step(
-        training_data,
-        u_star_model,
-        v_star_model,
-        phi_model,
-        u_star_params,
-        v_star_params,
-        phi_params,
-        prev_value,
-        prev_value_valid
-    )
+    for step in range(2, int(time_end / Dt) + 1):
+        # Predict the intermediate velocity field (u*, v*)
+        u_star_params, v_star_params = prediction_step(
+            u_star_model, v_star_model, training_data, prev_value, prev_value_valid, step
+        )
+        u_star_model.load_state_dict(u_star_params)
+        v_star_model.load_state_dict(v_star_params)
+        torch.save(u_star_model, pwd + dir_name + f"u_star_model\\u_star_{step}.pt")
+        torch.save(v_star_model, pwd + dir_name + f"v_star_model\\v_star_{step}.pt")
+        print("Finish the prediction step ...")
 
-    prev_value.update(new_value)
-    prev_value_valid.update(new_value_valid)
-    print("Finish the update step ...")
+        # Project the intermediate velocity field onto the space of divergence-free fields
+        phi_params = projection_step(
+            u_star_model, v_star_model, phi_model, u_star_params, v_star_params, step
+        )
+        phi_model.load_state_dict(phi_params)
+        torch.save(phi_model, pwd + dir_name + f"phi_model\\phi_{step}.pt")
+        print("Finish the projection step ...")
 
-    # Plot the intermediate velocity field and phi field
-    x_plot = torch.vstack((x_inner_valid, x_bd_valid))
-    y_plot = torch.vstack((y_inner_valid, y_bd_valid))
-    x_plot, y_plot = x_plot.reshape(-1, 1), y_plot.reshape(-1, 1)
-    u_star = u_star_model.predict(u_star_model, u_star_params, x_plot.to(device), y_plot.to(device)).cpu().detach().numpy()
-    v_star = v_star_model.predict(v_star_model, v_star_params, x_plot.to(device), y_plot.to(device)).cpu().detach().numpy()
-    phi = phi_model.predict(phi_model, phi_params, x_plot.to(device), y_plot.to(device)).cpu().detach().numpy()
+        # Update the velocity field and pressure field
+        new_value, new_value_valid = update_step(
+            training_data,
+            u_star_model,
+            v_star_model,
+            phi_model,
+            u_star_params,
+            v_star_params,
+            phi_params,
+            prev_value,
+            prev_value_valid
+        )
 
-    fig, axs = plt.subplots(nrows=1, ncols=3, subplot_kw={"projection": "3d"})
-    sca1 = axs[0].scatter(x_plot, y_plot, u_star, c=u_star, cmap="viridis", s=1)
-    sca2 = axs[1].scatter(x_plot, y_plot, v_star, c=v_star, cmap="viridis", s=1)
-    sca3 = axs[2].scatter(x_plot, y_plot, phi, c=phi, cmap="viridis", s=1)
-    fig.colorbar(sca1, ax=axs[0], shrink=0.3, aspect=10, pad=0.15)
-    fig.colorbar(sca2, ax=axs[1], shrink=0.3, aspect=10, pad=0.15)
-    fig.colorbar(sca3, ax=axs[2], shrink=0.3, aspect=10, pad=0.15)
-    axs[0].set_xlabel("x")
-    axs[1].set_xlabel("x")
-    axs[2].set_xlabel("x")
-    axs[0].set_ylabel("y")
-    axs[1].set_ylabel("y")
-    axs[2].set_ylabel("y")
-    axs[0].set_title("Predicted u*")
-    axs[1].set_title("Predicted v*")
-    axs[2].set_title("Predicted phi")
-    plt.show()
+        prev_value.update(new_value)
+        prev_value_valid.update(new_value_valid)
+        torch.save(prev_value, pwd + dir_name + f"data\\initial_value_{step}.pt")
+        torch.save(prev_value_valid, pwd + dir_name + f"data\\initial_value_valid_{step}.pt")
+        print("Finish the update step ...")
 
-    # Plot the velocity field and pressure field
-    u_pred = prev_value_valid["u1"]
-    v_pred = prev_value_valid["v1"]
-    p_pred = prev_value_valid["p1"]
-    fig, axs = plt.subplots(nrows=1, ncols=3, subplot_kw={"projection": "3d"})
-    sca1 = axs[0].scatter(x_plot, y_plot, u_pred, c=u_pred, cmap="viridis", s=1)
-    sca2 = axs[1].scatter(x_plot, y_plot, v_pred, c=v_pred, cmap="viridis", s=1)
-    sca3 = axs[2].scatter(x_plot, y_plot, p_pred, c=p_pred, cmap="viridis", s=1)
-    fig.colorbar(sca1, ax=axs[0], shrink=0.3, aspect=10, pad=0.15)
-    fig.colorbar(sca2, ax=axs[1], shrink=0.3, aspect=10, pad=0.15)
-    fig.colorbar(sca3, ax=axs[2], shrink=0.3, aspect=10, pad=0.15)
-    axs[0].set_xlabel("x")
-    axs[1].set_xlabel("x")
-    axs[2].set_xlabel("x")
-    axs[0].set_ylabel("y")
-    axs[1].set_ylabel("y")
-    axs[2].set_ylabel("y")
-    axs[0].set_title("Predicted u")
-    axs[1].set_title("Predicted v")
-    axs[2].set_title("Predicted p")
-    plt.show()
+        # Plot the velocity field and pressure field
+        exact_u = exact_sol(torch.tensor(prev_value_valid["x_data"]), torch.tensor(prev_value_valid["y_data"]), step * Dt, Re, "u").detach().numpy()
+        exact_v = exact_sol(torch.tensor(prev_value_valid["x_data"]), torch.tensor(prev_value_valid["y_data"]), step * Dt, Re, "v").detach().numpy()
+        exact_p = exact_sol(torch.tensor(prev_value_valid["x_data"]), torch.tensor(prev_value_valid["y_data"]), step * Dt, Re, "p").detach().numpy()
+        error_u = np.abs(prev_value_valid["u1"] - exact_u)
+        error_v = np.abs(prev_value_valid["v1"] - exact_v)
+        error_p = np.abs(prev_value_valid["p1"] - exact_p)
+        print('Final compute the error ...')
+
+        plot_figure(
+            x_data=prev_value_valid["x_data"],
+            y_data=prev_value_valid["y_data"],
+            plot_val=prev_value_valid["u1"],
+            title="Predicted u",
+            file_name=f"u\\u_{step}.png",
+        )
+        plot_figure(
+            x_data=prev_value_valid["x_data"],
+            y_data=prev_value_valid["y_data"],
+            plot_val=prev_value_valid["v1"],
+            title="Predicted v",
+            file_name=f"v\\v_{step}.png",
+        )
+        plot_figure(
+            x_data=prev_value_valid["x_data"],
+            y_data=prev_value_valid["y_data"],
+            plot_val=prev_value_valid["p1"],
+            title="Predicted p",
+            file_name=f"p\\p_{step}.png",
+        )
+        plot_figure(
+            x_data=prev_value_valid["x_data"],
+            y_data=prev_value_valid["y_data"],
+            plot_val=error_u,
+            title="Error of u",
+            file_name=f"u\\u_error_{step}.png",
+        )
+        plot_figure(
+            x_data=prev_value_valid["x_data"],
+            y_data=prev_value_valid["y_data"],
+            plot_val=error_v,
+            title="Error of v",
+            file_name=f"v\\v_error_{step}.png",
+        )
+        plot_figure(
+            x_data=prev_value_valid["x_data"],
+            y_data=prev_value_valid["y_data"],
+            plot_val=error_p,
+            title="Error of p",
+            file_name=f"p\\p_error_{step}.png",
+        )
 
 
 if __name__ == "__main__":
-    Re = 400
+    Re = 1000
     Dt = 0.01
+    time_end = 0.05
+
+    pwd = "C:\\barry_doc\\Training_Data\\"
+    dir_name = "TaylorGreenVortex_1000_0.01\\"
+    if not os.path.exists(pwd + dir_name):
+        print("Creating data directory...")
+        os.makedirs(pwd + dir_name)
+        os.makedirs(pwd + dir_name + "u_star_model")
+        os.makedirs(pwd + dir_name + "v_star_model")
+        os.makedirs(pwd + dir_name + "phi_model")
+        os.makedirs(pwd + dir_name + "psi_model")
+        os.makedirs(pwd + dir_name + "data")
+        os.makedirs(pwd + dir_name + "figures\\u")
+        os.makedirs(pwd + dir_name + "figures\\v")
+        os.makedirs(pwd + dir_name + "figures\\p")
+        os.makedirs(pwd + dir_name + "figures\\loss")
+    else:
+        print("Data directory already exists...")
+
     main()
