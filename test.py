@@ -73,9 +73,12 @@ phi_model = torch.load(phi_model_dir + "\\phi_40.pt", map_location=device)
 psi_model = torch.load(psi_model_dir + "\\psi_40.pt", map_location=device)
 data = torch.load(data_dir + "\\initial_value_40.pt", map_location=device)
 data_valid = torch.load(data_dir + "\\initial_value_valid_40.pt", map_location=device)
+u_star_model.eval()
+v_star_model.eval()
+phi_model.eval()
+psi_model.eval()
 
 print(u_star_model)
-
 
 # data_x, data_y = data["x_data"], data["y_data"]
 data_x, data_y = data_valid["x_data"], data_valid["y_data"]
