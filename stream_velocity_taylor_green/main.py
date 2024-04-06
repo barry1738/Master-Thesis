@@ -1029,8 +1029,8 @@ def main():
         prev_value_valid[key_v] = prev_value_valid[key_v].reshape(-1, 1)
 
     # Save the initial value
-    torch.save(prev_value, pwd + dir_name + "data\\initial_value_1.pt")
-    torch.save(prev_value_valid, pwd + dir_name + "data\\initial_value_valid_1.pt")
+    torch.save(prev_value, pwd + dir_name + "data\\data_1.pt")
+    torch.save(prev_value_valid, pwd + dir_name + "data\\data_valid_1.pt")
     
     for step in range(2, int(time_end / Dt) + 1):
         print(f"Step {step} ...")
@@ -1064,8 +1064,8 @@ def main():
 
         prev_value.update(new_value)
         prev_value_valid.update(new_value_valid)
-        torch.save(prev_value, pwd + dir_name + f"data\\initial_value_{step}.pt")
-        torch.save(prev_value_valid, pwd + dir_name + f"data\\initial_value_valid_{step}.pt")
+        torch.save(prev_value, pwd + dir_name + f"data\\data_{step}.pt")
+        torch.save(prev_value_valid, pwd + dir_name + f"data\\data_valid_{step}.pt")
         print("Finish the update step ...\n")
 
         if step % 5 == 0:
