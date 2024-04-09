@@ -24,8 +24,8 @@ import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
 from torch.func import functional_call, vmap, jacrev, vjp, grad
-from mesh_generator import CreateSquareMesh
-from utilities import exact_sol, qr_decomposition
+from test.projeciton_module.mesh_generator import CreateSquareMesh
+from test.projeciton_module.utilities import exact_sol, qr_decomposition
 
 class PinnModel(nn.Module):
     def __init__(self, layers):
