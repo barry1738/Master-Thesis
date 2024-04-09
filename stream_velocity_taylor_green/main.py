@@ -24,7 +24,7 @@ import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
 from torch.func import functional_call, vmap, jacrev, vjp, grad
-from mesh_generator import CreateMesh
+from mesh_generator import CreateSquareMesh
 from utilities import exact_sol, qr_decomposition
 
 class PinnModel(nn.Module):
@@ -99,8 +99,8 @@ def prediction_step(model_u_star, model_v_star, training_data, prev_val, prev_va
     def weights_init(model):
         """Initialize the weights of the neural network."""
         if isinstance(model, nn.Linear):
-            # nn.init.xavier_uniform_(model.weight.data, gain=5)
-            nn.init.xavier_normal_(model.weight.data, gain=5)
+            nn.init.xavier_uniform_(model.weight.data, gain=5)
+            # nn.init.xavier_normal_(model.weight.data, gain=5)
 
     model_u_star.apply(weights_init)
     model_v_star.apply(weights_init)
@@ -436,7 +436,7 @@ def projection_step(u_star_model, v_star_model, phi_model, psi_model,
     num_params_phi = phi_model.num_total_params()
 
     # Create the validation data
-    mesh = CreateMesh()
+    mesh = CreateSquareMesh()
     x_inner_v, y_inner_v = mesh.inner_points(10000)
     x_bd_v, y_bd_v = mesh.boundary_points(100)
     nx_v, ny_v = mesh.normal_vector(x_bd_v, y_bd_v)
@@ -909,10 +909,16 @@ def main():
     print(f"Total number of phi parameters: {total_params_phi}")
     print(f"Total number of psi parameters: {total_params_psi}")
 
+    def weights_init(model):
+        """Initialize the weights of the neural network."""
+        if isinstance(model, nn.Linear):
+            nn.init.xavier_uniform_(model.weight.data, gain=5)
+            # nn.init.xavier_normal_(model.weight.data, gain=10)
+
     # Define the training data
-    mesh = CreateMesh()
-    x_inner, y_inner = mesh.inner_points(500)
-    x_bd, y_bd = mesh.boundary_points(20)
+    mesh = CreateSquareMesh()
+    x_inner, y_inner = mesh.inner_points(1000)
+    x_bd, y_bd = mesh.boundary_points(30)
     x_inner_valid, y_inner_valid = mesh.inner_points(90000)
     x_bd_valid, y_bd_valid = mesh.boundary_points(300)
     # Compute the boundary normal vector
@@ -924,6 +930,17 @@ def main():
         (x_inner_valid, y_inner_valid),
         (x_bd_valid, y_bd_valid),
     )
+
+    # Plot the training data
+    fig, ax = plt.subplots(layout="constrained")
+    ax.scatter(x_inner, y_inner, s=5, c="k", label="Inner points")
+    ax.scatter(x_bd, y_bd, s=5, c="r", label="Boundary points")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title("Training data")
+    ax.set_aspect("equal")
+    # ax.legend()
+    plt.savefig(pwd + dir_name + "figures\\training_data.png", dpi=150)
 
     # Initialize the previous value
     x_training = torch.vstack((x_inner, x_bd))
@@ -1033,8 +1050,15 @@ def main():
     torch.save(prev_value_valid, pwd + dir_name + "data\\data_valid_1.pt")
     
     for step in range(2, int(time_end / Dt) + 1):
-        print(f"Step {step} ...")
+        print(f"Step {step}, time = {Dt * step:.3f} ...")
         print("=====================================")
+        # Initialize the weights of the neural network
+        # if step % 10 == 0:
+        #     u_star_model.apply(weights_init)
+        #     v_star_model.apply(weights_init)
+        #     phi_model.apply(weights_init)
+        #     psi_model.apply(weights_init)
+    
         # Predict the intermediate velocity field (u*, v*)
         u_star_params, v_star_params = prediction_step(
             u_star_model, v_star_model, training_data, prev_value, prev_value_valid, step
@@ -1068,7 +1092,7 @@ def main():
         torch.save(prev_value_valid, pwd + dir_name + f"data\\data_valid_{step}.pt")
         print("Finish the update step ...\n")
 
-        if step % 5 == 0:
+        if step % 10 == 0:
             # Plot the velocity field and pressure field
             exact_u = exact_sol(torch.tensor(prev_value_valid["x_data"]), torch.tensor(prev_value_valid["y_data"]), step * Dt, Re, "u").detach().numpy()
             exact_v = exact_sol(torch.tensor(prev_value_valid["x_data"]), torch.tensor(prev_value_valid["y_data"]), step * Dt, Re, "v").detach().numpy()
@@ -1132,11 +1156,11 @@ if __name__ == "__main__":
     plt.rcParams.update({"font.size": 12})
 
     Re = 1000
-    Dt = 0.025
-    time_end = 1.0
+    Dt = 0.05
+    time_end = 30.0
 
     pwd = "C:\\barry_doc\\Training_Data\\"
-    dir_name = "TaylorGreenVortex_Streamfunction_1000_0.025\\"
+    dir_name = "TaylorGreenVortex_Streamfunction_1000_0.05\\"
     if not os.path.exists(pwd + dir_name):
         print("Creating data directory...")
         os.makedirs(pwd + dir_name)
