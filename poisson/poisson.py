@@ -60,7 +60,7 @@ class Model(nn.Module):
             self.hidden.append(nn.Linear(h_dim[i], h_dim[i + 1]))
 
         # output layer
-        self.ln_out = nn.Linear(h_dim[-1], out_dim, bias=False)  # bias=True or False?
+        self.ln_out = nn.Linear(h_dim[-1], out_dim, bias=True)  # bias=True or False?
 
         # activation function
         self.act = nn.Sigmoid()
@@ -96,17 +96,17 @@ class Model(nn.Module):
 
 def exact_sol(x, y):
     """Exact solution of the Poisson equation."""
-    sol = torch.sin(2.0 * torch.pi * x) * torch.sin(2.0 * torch.pi * y)
+    sol = torch.sin(1.0 * torch.pi * x) * torch.sin(1.0 * torch.pi * y)
     return sol.reshape(-1, 1)
 
 
 def rhs(x, y):
     """Right-hand side of the Poisson equation."""
     f = (
-        -2.0 * 2.0**2
+        -2.0 * 1.0**2
         * torch.pi**2
-        * torch.sin(2.0 * torch.pi * x)
-        * torch.sin(2.0 * torch.pi * y)
+        * torch.sin(1.0 * torch.pi * x)
+        * torch.sin(1.0 * torch.pi * y)
     )
     return f.reshape(-1, 1)
 
@@ -154,13 +154,16 @@ def main():
     X_inner_valid, Y_inner_valid = X_inner_valid_torch[:, 0].reshape(-1, 1), X_inner_valid_torch[:, 1].reshape(-1, 1)
     X_bd_valid, Y_bd_valid = X_bd_valid_torch[:, 0].reshape(-1, 1), X_bd_valid_torch[:, 1].reshape(-1, 1)
 
-    model = Model(2, [20, 20], 1).to(device)  # hidden layers = [...](list)
+    model = Model(2, [40], 1).to(device)  # hidden layers = [...](list)
     print(model)
 
     # get the training parameters and total number of parameters
-    u_params = dict(model.named_parameters())
+    # u_params = dict(model.named_parameters())
+    u_params = model.state_dict()
     # for key, value in u_params.items():
     #     print(f"{key} = {value}")
+
+    u_params_copy = model.state_dict().copy()
 
     # 10 times the initial parameters
     u_params_flatten = nn.utils.parameters_to_vector(u_params.values()) * 10.0
@@ -277,7 +280,7 @@ def main():
             if savedloss[step] > savedloss[step - 1]:
                 mu = min(2 * mu, 1e8)
             else:
-                mu = max(mu / 3, 1e-10)
+                mu = max(mu / 5, 1e-10)
 
     
     # Plot the loss function
@@ -290,7 +293,12 @@ def main():
     plt.show()
 
     # Update the model parameters
-    model.load_state_dict(u_params)
+    # model.load_state_dict(u_params)
+
+    # for key, value in u_params.items():
+    #     print(f"{key} = {value}")
+    # for key, value in u_params_copy.items():
+    #     print(f"{key} = {value}")
 
     # Compute the exact solution
     x = torch.linspace(0, 1, 100, device=device)
@@ -299,6 +307,7 @@ def main():
     X, Y = X.reshape(-1, 1), Y.reshape(-1, 1)
     U_exact = exact_sol(X, Y).cpu()
     U_pred = functional_call(model, u_params, (X, Y)).cpu().detach().numpy()
+    # U_pred = model(X, Y).cpu().detach().numpy()
     Error = torch.abs(U_exact - U_pred)
 
     # Plot the exact solution
