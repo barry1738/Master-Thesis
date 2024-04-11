@@ -1075,6 +1075,10 @@ def main():
         print("Finish the prediction step ...\n")
 
         # Project the intermediate velocity field onto the space of divergence-free fields
+        # Compute the u_star RHS vectors and v_star RHS vectors
+        if step == 2:
+            Rf_u_star = 
+
         phi_params, psi_params = projection_step(
             u_star_model, v_star_model, phi_model, psi_model, u_star_params, v_star_params, step
         )
