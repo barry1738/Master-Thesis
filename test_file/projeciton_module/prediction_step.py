@@ -1,42 +1,32 @@
 import torch
 import torch.nn as nn
 from torch.func import vmap, jacrev, grad
-from config import REYNOLDS_NUM, TIME_STEP
-from mesh_generator import CreateSquareMesh, CreateCircleMesh
-from utilities import exact_sol, qr_decomposition, cholesky
+from projeciton_module.config import REYNOLDS_NUM, TIME_STEP
+from projeciton_module.utilities import qr_decomposition, cholesky
 from model_func import predict, predict_dxx, predict_dyy
 
 
-Re = REYNOLDS_NUM
-Dt = TIME_STEP
-# print(f"Re = {REYNOLDS_NUM}")
-# print(f"Dt = {TIME_STEP}")
-
-
-def prediction_step(model, rhs_vec, step, direction, device):
+def prediction_step(model, points, rhs_vec, device):
     """The prediction step of the projection method"""
-    # Create the mesh
-    mesh = CreateSquareMesh()
-    x_inner, y_inner = mesh.inner_points(100)
-    x_bd, y_bd = mesh.boundary_points(10)
-    x_inner_v, y_inner_v = mesh.inner_points(1000)
-    x_bd_v, y_bd_v = mesh.boundary_points(100)
-
-    # Move the data to the device
-    x_inner, y_inner = x_inner.to(device), y_inner.to(device)
-    x_bd, y_bd = x_bd.to(device), y_bd.to(device)
-    x_inner_v, y_inner_v = x_inner_v.to(device), y_inner_v.to(device)
-    x_bd_v, y_bd_v = x_bd_v.to(device), y_bd_v.to(device)
-
     # Define the parameters
     def weights_init(model):
         """Initialize the weights of the neural network."""
         if isinstance(model, nn.Linear):
-            nn.init.xavier_uniform_(model.weight.data, gain=5)
-            # nn.init.xavier_normal_(model.weight.data, gain=5)
+            # nn.init.xavier_uniform_(model.weight.data, gain=5)
+            nn.init.xavier_normal_(model.weight.data, gain=5)
 
     model.apply(weights_init)
     params = model.state_dict()
+
+    # Unpack the points
+    x_inner = points[0]
+    y_inner = points[1]
+    x_bd = points[2]
+    y_bd = points[3]
+    x_inner_v = points[4]
+    y_inner_v = points[5]
+    x_bd_v = points[6]
+    y_bd_v = points[7]
 
     # Unpack the right-hand side values
     Rf_inner = rhs_vec[0]
@@ -44,79 +34,11 @@ def prediction_step(model, rhs_vec, step, direction, device):
     Rf_inner_valid = rhs_vec[2]
     Rf_bd_valid = rhs_vec[3]
 
-    # Compute the right-hand side values
-    if direction == "u":
-        """Compute the right-hand side values for the u-component."""
-        Rf_inner = (
-            4 * torch.tensor(prev_val["u1"][:x_inner.size(0), :])
-            - torch.tensor(prev_val["u0"][:x_inner.size(0), :])
-            - 2 * (2 * Dt) * (torch.tensor(prev_val["u1"][:x_inner.size(0), :]) * 
-                            torch.tensor(prev_val["du1dx"][:x_inner.size(0), :]) + 
-                            torch.tensor(prev_val["v1"][:x_inner.size(0), :]) * 
-                            torch.tensor(prev_val["du1dy"][:x_inner.size(0), :]))
-            + (2 * Dt) * (torch.tensor(prev_val["u0"][:x_inner.size(0), :]) * 
-                        torch.tensor(prev_val["du0dx"][:x_inner.size(0), :]) + 
-                        torch.tensor(prev_val["v0"][:x_inner.size(0), :]) * 
-                        torch.tensor(prev_val["du0dy"][:x_inner.size(0), :]))
-            - (2 * Dt) * (torch.tensor(prev_val["dp1dx"][:x_inner.size(0), :]))
-        ).to(device)
-
-        Rf_inner_valid = (
-            4 * torch.tensor(prev_val_valid["u1"][:x_inner_v.size(0), :])
-            - torch.tensor(prev_val_valid["u0"][:x_inner_v.size(0), :])
-            - 2 * (2 * Dt) * (torch.tensor(prev_val_valid["u1"][:x_inner_v.size(0), :]) * 
-                            torch.tensor(prev_val_valid["du1dx"][:x_inner_v.size(0), :]) + 
-                            torch.tensor(prev_val_valid["v1"][:x_inner_v.size(0), :]) * 
-                            torch.tensor(prev_val_valid["du1dy"][:x_inner_v.size(0), :]))
-            + (2 * Dt) * (torch.tensor(prev_val_valid["u0"][:x_inner_v.size(0), :]) * 
-                        torch.tensor(prev_val_valid["du0dx"][:x_inner_v.size(0), :]) + 
-                        torch.tensor(prev_val_valid["v0"][:x_inner_v.size(0), :]) * 
-                        torch.tensor(prev_val_valid["du0dy"][:x_inner_v.size(0), :]))
-            - (2 * Dt) * (torch.tensor(prev_val_valid["dp1dx"][:x_inner_v.size(0), :]))
-        ).to(device)
-
-        Rf_bd = exact_sol(x_bd, y_bd, step * Dt, Re, "u")
-        Rf_bd_valid = exact_sol(x_bd_v, y_bd_v, step * Dt, Re, "u")
-
-    else:
-        """Compute the right-hand side values for the v-component."""
-        Rf_inner = (
-            4 * torch.tensor(prev_val["v1"][:x_inner.size(0), :])
-            - torch.tensor(prev_val["v0"][:x_inner.size(0), :])
-            - 2 * (2 * Dt) * (torch.tensor(prev_val["u1"][:x_inner.size(0), :]) * 
-                            torch.tensor(prev_val["dv1dx"][:x_inner.size(0), :]) + 
-                            torch.tensor(prev_val["v1"][:x_inner.size(0), :]) * 
-                            torch.tensor(prev_val["dv1dy"][:x_inner.size(0), :]))
-            + (2 * Dt) * (torch.tensor(prev_val["u0"][:x_inner.size(0), :]) * 
-                        torch.tensor(prev_val["dv0dx"][:x_inner.size(0), :]) + 
-                        torch.tensor(prev_val["v0"][:x_inner.size(0), :]) * 
-                        torch.tensor(prev_val["dv0dy"][:x_inner.size(0), :]))
-            - (2 * Dt) * (torch.tensor(prev_val["dp1dy"][:x_inner.size(0), :]))
-        ).to(device)
-
-        Rf_inner_valid = (
-            4 * torch.tensor(prev_val_valid["v1"][:x_inner_v.size(0), :])
-            - torch.tensor(prev_val_valid["v0"][:x_inner_v.size(0), :])
-            - 2 * (2 * Dt) * (torch.tensor(prev_val_valid["u1"][:x_inner_v.size(0), :]) * 
-                            torch.tensor(prev_val_valid["dv1dx"][:x_inner_v.size(0), :]) + 
-                            torch.tensor(prev_val_valid["v1"][:x_inner_v.size(0), :]) * 
-                            torch.tensor(prev_val_valid["dv1dy"][:x_inner_v.size(0), :]))
-            + (2 * Dt) * (torch.tensor(prev_val_valid["u0"][:x_inner_v.size(0), :]) * 
-                        torch.tensor(prev_val_valid["dv0dx"][:x_inner_v.size(0), :]) + 
-                        torch.tensor(prev_val_valid["v0"][:x_inner_v.size(0), :]) * 
-                        torch.tensor(prev_val_valid["dv0dy"][:x_inner_v.size(0), :]))
-            - (2 * Dt) * (torch.tensor(prev_val_valid["dp1dy"][:x_inner_v.size(0), :]))
-        ).to(device)
-
-        Rf_bd = exact_sol(x_bd, y_bd, step * Dt, Re, "v")
-        Rf_bd_valid = exact_sol(x_bd_v, y_bd_v, step * Dt, Re, "v")
-
-
     def compute_loss_res(model, params, x, y, Rf_inner):
         """Compute the residual loss function."""
         pred = (
             3 * predict(model, params, x, y) -
-            (2 * Dt / Re) * (
+            (2 * TIME_STEP / REYNOLDS_NUM) * (
                 predict_dxx(model, params, x, y) +
                 predict_dyy(model, params, x, y)
             )
@@ -185,7 +107,8 @@ def prediction_step(model, rhs_vec, step, direction, device):
 
         # Stop the training if the loss function is converged
         if (iter == Niter - 1) or (loss < tol):
-            print('Successful training u* ...')
+            print('Successful training. ...')
+            print(f"iter: {iter}, Loss: {loss.item():.2e}, mu: {mu:.1e}")
             break
 
         # Update the parameter mu
@@ -228,4 +151,7 @@ def prediction_step(model, rhs_vec, step, direction, device):
             beta = (1 - 0.1) * beta + 0.1 * beta_bar
             print(f"alpha: {alpha:.2f}, beta: {beta:.2f}")
 
-    return params, loss, loss_valid
+        if iter % 5 == 0:
+            print(f"iter: {iter}, Loss: {loss.item():.2e}, mu: {mu:.1e}")
+
+    return params, savedloss, savedloss_valid

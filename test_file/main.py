@@ -23,7 +23,6 @@ matplotlib.use("Agg")
 import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
-from torch.func import functional_call, vmap, jacrev, vjp, grad
 import model_func as mf
 import projeciton_module as pm
 
@@ -79,12 +78,13 @@ def main():
     # Define the neural network
     u_star_model = PinnModel([2, 20, 20, 1]).to(device)
     v_star_model = PinnModel([2, 20, 20, 1]).to(device)
-    phi_model = PinnModel([2, 20, 20, 1]).to(device)
-    psi_model = PinnModel([2, 20, 20, 1]).to(device)
-    u_model = PinnModel([2, 20, 20, 1]).to(device)
-    v_model = PinnModel([2, 20, 20, 1]).to(device)
-    p_model = PinnModel([2, 20, 20, 1]).to(device)
+    phi_model = PinnModel([2, 40, 1]).to(device)
+    psi_model = PinnModel([2, 40, 1]).to(device)
+    u_model = PinnModel([2, 40, 1]).to(device)
+    v_model = PinnModel([2, 40, 1]).to(device)
+    p_model = PinnModel([2, 40, 1]).to(device)
 
+    # Save the model
     torch.save(u_star_model, pwd + dir_name + "models\\u_star_model.pt")
     torch.save(v_star_model, pwd + dir_name + "models\\v_star_model.pt")
     torch.save(phi_model, pwd + dir_name + "models\\phi_model.pt")
@@ -105,6 +105,7 @@ def main():
     v_params_old = v_model.state_dict().copy()
     p_params_old = p_model.state_dict().copy()
 
+    # Print the total number of parameters
     total_params_u_star = u_star_model.num_total_params()
     total_params_v_star = v_star_model.num_total_params()
     total_params_phi = phi_model.num_total_params()
@@ -114,36 +115,52 @@ def main():
     print(f"Total number of phi parameters: {total_params_phi}")
     print(f"Total number of psi parameters: {total_params_psi}")
 
-    # Define the training data
+    # # Define the training data
     mesh = pm.CreateSquareMesh()
-    x_inner, y_inner = mesh.inner_points(1000)
-    x_bd, y_bd = mesh.boundary_points(30)
-    x_inner_valid, y_inner_valid = mesh.inner_points(90000)
-    x_bd_valid, y_bd_valid = mesh.boundary_points(300)
+    # x_inner, y_inner = mesh.inner_points(500)
+    # x_bd, y_bd = mesh.boundary_points(25)
+    # x_inner_valid, y_inner_valid = mesh.inner_points(10000)
+    # x_bd_valid, y_bd_valid = mesh.boundary_points(100)
 
-    # Plot the training data
-    fig, ax = plt.subplots(layout="constrained")
-    ax.scatter(x_inner, y_inner, s=5, c="k", label="Inner points")
-    ax.scatter(x_bd, y_bd, s=5, c="r", label="Boundary points")
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_title("Training data")
-    ax.set_aspect("equal")
-    # ax.legend()
-    plt.savefig(pwd + dir_name + "figures\\training_data.png", dpi=150)
+    # # Plot the training data
+    # fig, ax = plt.subplots(layout="constrained")
+    # ax.scatter(x_inner, y_inner, s=5, c="k", label="Inner points")
+    # ax.scatter(x_bd, y_bd, s=5, c="r", label="Boundary points")
+    # ax.set_xlabel("x")
+    # ax.set_ylabel("y")
+    # ax.set_title("Training data")
+    # ax.set_aspect("equal")
+    # # ax.legend()
+    # plt.savefig(pwd + dir_name + "figures\\training_data.png", dpi=150)
 
-    # Move the data to the device
-    x_inner, y_inner = x_inner.to(device), y_inner.to(device)
-    x_bd, y_bd = x_bd.to(device), y_bd.to(device)
-    x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
-    x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
+    # # Move the data to the device
+    # x_inner, y_inner = x_inner.to(device), y_inner.to(device)
+    # x_bd, y_bd = x_bd.to(device), y_bd.to(device)
+    # x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
+    # x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
 
-    points = (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid)
+    # points = (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid)
 
     for step in range(2, int(time_end / Dt) + 1):
         print(f"Step {step}, time = {Dt * step:.3f} ...")
         print("=====================================")
+        if step % 5 == 0:
+            # Define the training data
+            x_inner, y_inner = mesh.inner_points(2000)
+            x_bd, y_bd = mesh.boundary_points(40)
+            x_inner_valid, y_inner_valid = mesh.inner_points(10000)
+            x_bd_valid, y_bd_valid = mesh.boundary_points(100)
+
+            # Move the data to the device
+            x_inner, y_inner = x_inner.to(device), y_inner.to(device)
+            x_bd, y_bd = x_bd.to(device), y_bd.to(device)
+            x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
+            x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
+
+        points = (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid)
+
         # # Predict the intermediate velocity field (u*, v*)
+        print("===== Start the prediction step ... =====")
         # Compute the right-hand side of the prediction step
         Rf_u_star, Rf_v_star, Rf_u_star_bd, Rf_v_star_bd = pm.prediction_rhs(
             (u_model, v_model, p_model), 
@@ -158,12 +175,14 @@ def main():
             step, device
         )
         # Start training u* and v*
+        print("Start training u* ...")
         u_star_params, loss_u_star, loss_u_star_valid = pm.prediction_step(
             u_star_model, 
             points,
             (Rf_u_star, Rf_u_star_bd, Rf_u_star_valid, Rf_u_star_bd_valid),
             device
         )
+        print("Start training v* ...")
         v_star_params, loss_v_star, loss_v_star_valid = pm.prediction_step(
             v_star_model, 
             points,
@@ -171,14 +190,15 @@ def main():
             device
         )
         # Plot the loss function
-        plot_loss_figure(loss_u_star, loss_u_star_valid, "Loss of u*", f"loss_u_star_{step}.png")
-        plot_loss_figure(loss_v_star, loss_v_star_valid, "Loss of v*", f"loss_v_star_{step}.png")
+        plot_loss_figure(loss_u_star, loss_u_star_valid, "Loss of u*", f"loss_u_star\\loss_u_star_{step}.png")
+        plot_loss_figure(loss_v_star, loss_v_star_valid, "Loss of v*", f"loss_v_star\\loss_v_star_{step}.png")
         # Save the parameters
-        torch.save(u_star_params, pwd + dir_name + f"u_star_params\\u_star_{step}.pt")
-        torch.save(v_star_params, pwd + dir_name + f"v_star_params\\v_star_{step}.pt")
-        print("Finish the prediction step ...\n")
+        torch.save(u_star_params, pwd + dir_name + f"params\\u_star_params\\u_star_{step}.pt")
+        torch.save(v_star_params, pwd + dir_name + f"params\\v_star_params\\v_star_{step}.pt")
+        print("===== Finish the prediction step ... =====\n")
 
         # # Project the intermediate velocity field onto the space of divergence-free fields
+        print("===== Start the projection step ... =====")
         # Compute the right-hand side of the projection step
         Rf_proj_1 = mf.predict(u_star_model, u_star_params, x_inner, y_inner)
         Rf_proj_2 = mf.predict(v_star_model, v_star_params, x_inner, y_inner)
@@ -188,6 +208,8 @@ def main():
         Rf_proj_2_valid = mf.predict(v_star_model, v_star_params, x_inner_valid, y_inner_valid)
         Rf_proj_bd_1_valid = pm.exact_sol(x_bd_valid, y_bd_valid, step * Dt, Re, "u")
         Rf_proj_bd_2_valid = pm.exact_sol(x_bd_valid, y_bd_valid, step * Dt, Re, "v")
+
+        # Start training phi and psi
         phi_params, psi_params, loss_proj, loss_proj_valid = pm.projection_step(
             phi_model, psi_model, points, 
             (Rf_proj_1, Rf_proj_2, Rf_proj_bd_1, Rf_proj_bd_2, Rf_proj_1_valid, 
@@ -195,13 +217,14 @@ def main():
             device
         )
         # Plot the loss function
-        plot_loss_figure(loss_proj, loss_proj_valid, "Loss of projection step", f"loss_proj_{step}.png")
+        plot_loss_figure(loss_proj, loss_proj_valid, "Loss of projection step", f"loss_proj\\loss_proj_{step}.png")
         # Save the parameters
-        torch.save(phi_params, pwd + dir_name + f"phi_params\\phi_{step}.pt")
-        torch.save(psi_params, pwd + dir_name + f"psi_params\\psi_{step}.pt")
-        print("Finish the projection step ...\n")
+        torch.save(phi_params, pwd + dir_name + f"params\\phi_params\\phi_{step}.pt")
+        torch.save(psi_params, pwd + dir_name + f"params\\psi_params\\psi_{step}.pt")
+        print("===== Finish the projection step ... =====\n")
 
         # # Update the velocity field and pressure field
+        print("===== Start the update step ... =====")
         # Compute the right-hand side of the update step
         x = torch.vstack((x_inner, x_bd))
         y = torch.vstack((y_inner, y_bd))
@@ -209,7 +232,9 @@ def main():
         y_v = torch.vstack((y_inner_valid, y_bd_valid))
 
         Rf_u = mf.predict_dy(psi_model, psi_params, x, y)
+        Rf_u_valid = mf.predict_dy(psi_model, psi_params, x_v, y_v)
         Rf_v = -mf.predict_dx(psi_model, psi_params, x, y)
+        Rf_v_valid = -mf.predict_dx(psi_model, psi_params, x_v, y_v)
         if step == 2:
             Rf_p = (
                 pm.exact_sol(x, y, (step - 1) * Dt, Re, "p")
@@ -219,13 +244,29 @@ def main():
                     + mf.predict_dy(v_star_model, v_star_params, x, y)
                 )
             )
+            Rf_p_valid = (
+                pm.exact_sol(x_v, y_v, (step - 1) * Dt, Re, "p")
+                + mf.predict(phi_model, phi_params, x_v, y_v)
+                - (1 / Re) * (
+                    mf.predict_dx(u_star_model, u_star_params, x_v, y_v)
+                    + mf.predict_dy(v_star_model, v_star_params, x_v, y_v)
+                )
+            )
         else:
             Rf_p = (
-                mf.predict(p_model, p_params_old, x, y)
+                mf.predict(p_model, p_params, x, y)
                 + mf.predict(phi_model, phi_params, x, y)
                 - (1 / Re) * (
                     mf.predict_dx(u_star_model, u_star_params, x, y)
                     + mf.predict_dy(v_star_model, v_star_params, x, y)
+                )
+            )
+            Rf_p_valid = (
+                mf.predict(p_model, p_params, x_v, y_v)
+                + mf.predict(phi_model, phi_params, x_v, y_v)
+                - (1 / Re) * (
+                    mf.predict_dx(u_star_model, u_star_params, x_v, y_v)
+                    + mf.predict_dy(v_star_model, v_star_params, x_v, y_v)
                 )
             )
 
@@ -235,68 +276,86 @@ def main():
         p_params_old = p_params.copy()
 
         # Compute the new velocity parameters and pressure parameters
-        u_params = pm.update_step(u_model, points, Rf_u, device)
-        v_params = pm.update_step(v_model, points, Rf_v, device)
-        p_params = pm.update_step(p_model, points, Rf_p, device)
+        u_params, loss_u, loss_u_valid = pm.update_step(u_model, points, (Rf_u, Rf_u_valid), device)
+        v_params, loss_v, loss_v_valid = pm.update_step(v_model, points, (Rf_v, Rf_v_valid), device)
+        p_params, loss_p, loss_p_valid = pm.update_step(p_model, points, (Rf_p, Rf_p_valid), device)
 
-        torch.save(u_params, pwd + dir_name + f"u_params\\u_{step}.pt")
-        torch.save(v_params, pwd + dir_name + f"v_params\\v_{step}.pt")
-        torch.save(p_params, pwd + dir_name + f"p_params\\p_{step}.pt")
-        print("Finish the update step ...\n")
+        # Plot the loss function
+        plot_loss_figure(loss_u, loss_u_valid, "Loss of u", f"loss_u\\loss_u_{step}.png")
+        plot_loss_figure(loss_v, loss_v_valid, "Loss of v", f"loss_v\\loss_v_{step}.png")
+        plot_loss_figure(loss_p, loss_p_valid, "Loss of p", f"loss_p\\loss_p_{step}.png")
+        # Save the parameters
+        torch.save(u_params, pwd + dir_name + f"params\\u_params\\u_{step}.pt")
+        torch.save(v_params, pwd + dir_name + f"params\\v_params\\v_{step}.pt")
+        torch.save(p_params, pwd + dir_name + f"params\\p_params\\p_{step}.pt")
+        print("===== Finish the update step ... =====\n")
 
-        # if step % 10 == 0:
-        #     # Plot the velocity field and pressure field
-        #     exact_u = exact_sol(torch.tensor(prev_value_valid["x_data"]), torch.tensor(prev_value_valid["y_data"]), step * Dt, Re, "u").detach().numpy()
-        #     exact_v = exact_sol(torch.tensor(prev_value_valid["x_data"]), torch.tensor(prev_value_valid["y_data"]), step * Dt, Re, "v").detach().numpy()
-        #     exact_p = exact_sol(torch.tensor(prev_value_valid["x_data"]), torch.tensor(prev_value_valid["y_data"]), step * Dt, Re, "p").detach().numpy()
-        #     error_u = np.abs(prev_value_valid["u1"] - exact_u)
-        #     error_v = np.abs(prev_value_valid["v1"] - exact_v)
-        #     error_p = np.abs(prev_value_valid["p1"] - exact_p)
-        #     print('Final compute the error ...\n')
+        # if torch.allclose(u_params_old["linear_layers.0.weight"], u_params["linear_layers.0.weight"]):
+        #     print("They are the same ...")
+        # else:
+        #     print("They are different ...")
 
-        #     plot_figure(
-        #         x_data=prev_value_valid["x_data"],
-        #         y_data=prev_value_valid["y_data"],
-        #         plot_val=prev_value_valid["u1"],
-        #         title="Predicted u",
-        #         file_name=f"u\\u_{step}.png",
-        #     )
-        #     plot_figure(
-        #         x_data=prev_value_valid["x_data"],
-        #         y_data=prev_value_valid["y_data"],
-        #         plot_val=prev_value_valid["v1"],
-        #         title="Predicted v",
-        #         file_name=f"v\\v_{step}.png",
-        #     )
-        #     plot_figure(
-        #         x_data=prev_value_valid["x_data"],
-        #         y_data=prev_value_valid["y_data"],
-        #         plot_val=prev_value_valid["p1"],
-        #         title="Predicted p",
-        #         file_name=f"p\\p_{step}.png",
-        #     )
-        #     plot_figure(
-        #         x_data=prev_value_valid["x_data"],
-        #         y_data=prev_value_valid["y_data"],
-        #         plot_val=error_u,
-        #         title="Error of u",
-        #         file_name=f"u\\u_error_{step}.png",
-        #     )
-        #     plot_figure(
-        #         x_data=prev_value_valid["x_data"],
-        #         y_data=prev_value_valid["y_data"],
-        #         plot_val=error_v,
-        #         title="Error of v",
-        #         file_name=f"v\\v_error_{step}.png",
-        #     )
-        #     plot_figure(
-        #         x_data=prev_value_valid["x_data"],
-        #         y_data=prev_value_valid["y_data"],
-        #         plot_val=error_p,
-        #         title="Error of p",
-        #         file_name=f"p\\p_error_{step}.png",
-        #     )
-        #     print('Finish the plot ...\n')
+        if step % 1 == 0:
+            x_plot, y_plot = torch.meshgrid(
+                torch.linspace(0, 1, 200), torch.linspace(0, 1, 200), indexing="xy"
+            )
+            x_plot, y_plot = x_plot.reshape(-1, 1), y_plot.reshape(-1, 1)
+            x_plot, y_plot = x_plot.to(device), y_plot.to(device)
+            # Plot the velocity field and pressure field
+            exact_u = pm.exact_sol(x_plot, y_plot, step * Dt, Re, "u").cpu().detach().numpy()
+            exact_v = pm.exact_sol(x_plot, y_plot, step * Dt, Re, "v").cpu().detach().numpy()
+            exact_p = pm.exact_sol(x_plot, y_plot, step * Dt, Re, "p").cpu().detach().numpy()
+            predict_u = mf.predict(u_model, u_params, x_plot, y_plot).cpu().detach().numpy()
+            predict_v = mf.predict(v_model, v_params, x_plot, y_plot).cpu().detach().numpy()
+            predict_p = mf.predict(p_model, p_params, x_plot, y_plot).cpu().detach().numpy()
+            error_u = np.abs(predict_u - exact_u)
+            error_v = np.abs(predict_v - exact_v)
+            error_p = np.abs(predict_p - exact_p)
+            print('===== Final compute the error ... =====\n')
+
+            plot_figure(
+                x_data=x_plot.cpu().detach().numpy(),
+                y_data=y_plot.cpu().detach().numpy(),
+                plot_val=predict_u,
+                title="Predicted u",
+                file_name=f"u\\u_{step}.png",
+            )
+            plot_figure(
+                x_data=x_plot.cpu().detach().numpy(),
+                y_data=y_plot.cpu().detach().numpy(),
+                plot_val=predict_v,
+                title="Predicted v",
+                file_name=f"v\\v_{step}.png",
+            )
+            plot_figure(
+                x_data=x_plot.cpu().detach().numpy(),
+                y_data=y_plot.cpu().detach().numpy(),
+                plot_val=predict_p,
+                title="Predicted p",
+                file_name=f"p\\p_{step}.png",
+            )
+            plot_figure(
+                x_data=x_plot.cpu().detach().numpy(),
+                y_data=y_plot.cpu().detach().numpy(),
+                plot_val=error_u,
+                title="Error of u",
+                file_name=f"u\\u_error_{step}.png",
+            )
+            plot_figure(
+                x_data=x_plot.cpu().detach().numpy(),
+                y_data=y_plot.cpu().detach().numpy(),
+                plot_val=error_v,
+                title="Error of v",
+                file_name=f"v\\v_error_{step}.png",
+            )
+            plot_figure(
+                x_data=x_plot.cpu().detach().numpy(),
+                y_data=y_plot.cpu().detach().numpy(),
+                plot_val=error_p,
+                title="Error of p",
+                file_name=f"p\\p_error_{step}.png",
+            )
+            print('===== Finish the plot ... =====\n')
 
 
 if __name__ == "__main__":
@@ -309,7 +368,7 @@ if __name__ == "__main__":
 
     Re = pm.REYNOLDS_NUM
     Dt = pm.TIME_STEP
-    time_end = 0.02
+    time_end = 0.04
 
     print(f'Re = {Re}, Dt = {Dt}, time_end = {time_end} ...')
 
@@ -319,17 +378,25 @@ if __name__ == "__main__":
         print("Creating data directory...")
         os.makedirs(pwd + dir_name)
         os.makedirs(pwd + dir_name + "models")
-        os.makedirs(pwd + dir_name + "u_star_params")
-        os.makedirs(pwd + dir_name + "v_star_params")
-        os.makedirs(pwd + dir_name + "phi_params")
-        os.makedirs(pwd + dir_name + "psi_params")
-        os.makedirs(pwd + dir_name + "u_params")
-        os.makedirs(pwd + dir_name + "v_params")
-        os.makedirs(pwd + dir_name + "p_params")
+        os.makedirs(pwd + dir_name + "params")
+        os.makedirs(pwd + dir_name + "params\\u_star_params")
+        os.makedirs(pwd + dir_name + "params\\v_star_params")
+        os.makedirs(pwd + dir_name + "params\\phi_params")
+        os.makedirs(pwd + dir_name + "params\\psi_params")
+        os.makedirs(pwd + dir_name + "params\\u_params")
+        os.makedirs(pwd + dir_name + "params\\v_params")
+        os.makedirs(pwd + dir_name + "params\\p_params")
         os.makedirs(pwd + dir_name + "figures\\u")
         os.makedirs(pwd + dir_name + "figures\\v")
         os.makedirs(pwd + dir_name + "figures\\p")
         os.makedirs(pwd + dir_name + "figures\\loss")
+        os.makedirs(pwd + dir_name + "figures\\loss\\loss_u_star")
+        os.makedirs(pwd + dir_name + "figures\\loss\\loss_v_star")
+        os.makedirs(pwd + dir_name + "figures\\loss\\loss_proj")
+        os.makedirs(pwd + dir_name + "figures\\loss\\loss_u")
+        os.makedirs(pwd + dir_name + "figures\\loss\\loss_v")
+        os.makedirs(pwd + dir_name + "figures\\loss\\loss_p")
+        print("Data directory created...")
     else:
         print("Data directory already exists...")
 
