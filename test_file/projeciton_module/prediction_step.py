@@ -112,11 +112,11 @@ def prediction_step(model, points, rhs_vec, device):
             break
 
         # Update the parameter mu
-        if iter % 3 == 0:
+        if iter % 5 == 0:
             if savedloss[iter] > savedloss[iter - 1]:
                 mu = min(2 * mu, 1e8)
             else:
-                mu = max(mu / 5, 1e-10)
+                mu = max(mu / 3, 1e-12)
 
         # Compute alpha_bar and beta_bar, then update alpha and beta
         if iter % 100 == 0:

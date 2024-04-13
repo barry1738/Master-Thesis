@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
-from torch.func import vmap, jacrev, grad
-from projeciton_module.config import TIME_STEP
+from torch.func import vmap, jacrev
 from projeciton_module.utilities import qr_decomposition, cholesky
 from model_func import predict
 

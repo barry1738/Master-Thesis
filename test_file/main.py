@@ -117,47 +117,47 @@ def main():
 
     # # Define the training data
     mesh = pm.CreateSquareMesh()
-    # x_inner, y_inner = mesh.inner_points(500)
-    # x_bd, y_bd = mesh.boundary_points(25)
-    # x_inner_valid, y_inner_valid = mesh.inner_points(10000)
-    # x_bd_valid, y_bd_valid = mesh.boundary_points(100)
+    x_inner, y_inner = mesh.inner_points(2000)
+    x_bd, y_bd = mesh.boundary_points(40)
+    x_inner_valid, y_inner_valid = mesh.inner_points(10000)
+    x_bd_valid, y_bd_valid = mesh.boundary_points(100)
 
-    # # Plot the training data
-    # fig, ax = plt.subplots(layout="constrained")
-    # ax.scatter(x_inner, y_inner, s=5, c="k", label="Inner points")
-    # ax.scatter(x_bd, y_bd, s=5, c="r", label="Boundary points")
-    # ax.set_xlabel("x")
-    # ax.set_ylabel("y")
-    # ax.set_title("Training data")
-    # ax.set_aspect("equal")
-    # # ax.legend()
-    # plt.savefig(pwd + dir_name + "figures\\training_data.png", dpi=150)
+    # Plot the training data
+    fig, ax = plt.subplots(layout="constrained")
+    ax.scatter(x_inner, y_inner, s=5, c="k", label="Inner points")
+    ax.scatter(x_bd, y_bd, s=5, c="r", label="Boundary points")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title("Training data")
+    ax.set_aspect("equal")
+    # ax.legend()
+    plt.savefig(pwd + dir_name + "figures\\training_data.png", dpi=150)
 
-    # # Move the data to the device
-    # x_inner, y_inner = x_inner.to(device), y_inner.to(device)
-    # x_bd, y_bd = x_bd.to(device), y_bd.to(device)
-    # x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
-    # x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
+    # Move the data to the device
+    x_inner, y_inner = x_inner.to(device), y_inner.to(device)
+    x_bd, y_bd = x_bd.to(device), y_bd.to(device)
+    x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
+    x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
 
-    # points = (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid)
+    points = (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid)
 
     for step in range(2, int(time_end / Dt) + 1):
         print(f"Step {step}, time = {Dt * step:.3f} ...")
         print("=====================================")
-        if step % 5 == 0:
-            # Define the training data
-            x_inner, y_inner = mesh.inner_points(2000)
-            x_bd, y_bd = mesh.boundary_points(40)
-            x_inner_valid, y_inner_valid = mesh.inner_points(10000)
-            x_bd_valid, y_bd_valid = mesh.boundary_points(100)
+        # if step == 2 or step % 5 == 0:
+        #     # Define the training data
+        #     x_inner, y_inner = mesh.inner_points(2000)
+        #     x_bd, y_bd = mesh.boundary_points(40)
+        #     x_inner_valid, y_inner_valid = mesh.inner_points(10000)
+        #     x_bd_valid, y_bd_valid = mesh.boundary_points(100)
 
-            # Move the data to the device
-            x_inner, y_inner = x_inner.to(device), y_inner.to(device)
-            x_bd, y_bd = x_bd.to(device), y_bd.to(device)
-            x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
-            x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
+        #     # Move the data to the device
+        #     x_inner, y_inner = x_inner.to(device), y_inner.to(device)
+        #     x_bd, y_bd = x_bd.to(device), y_bd.to(device)
+        #     x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
+        #     x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
 
-        points = (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid)
+        # points = (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid)
 
         # # Predict the intermediate velocity field (u*, v*)
         print("===== Start the prediction step ... =====")
@@ -317,42 +317,42 @@ def main():
                 x_data=x_plot.cpu().detach().numpy(),
                 y_data=y_plot.cpu().detach().numpy(),
                 plot_val=predict_u,
-                title="Predicted u",
+                title=f"Predicted u, Time = {step * Dt:.3f}",
                 file_name=f"u\\u_{step}.png",
             )
             plot_figure(
                 x_data=x_plot.cpu().detach().numpy(),
                 y_data=y_plot.cpu().detach().numpy(),
                 plot_val=predict_v,
-                title="Predicted v",
+                title=f"Predicted v, Time = {step * Dt:.3f}",
                 file_name=f"v\\v_{step}.png",
             )
             plot_figure(
                 x_data=x_plot.cpu().detach().numpy(),
                 y_data=y_plot.cpu().detach().numpy(),
                 plot_val=predict_p,
-                title="Predicted p",
+                title=f"Predicted p, Time = {step * Dt:.3f}",
                 file_name=f"p\\p_{step}.png",
             )
             plot_figure(
                 x_data=x_plot.cpu().detach().numpy(),
                 y_data=y_plot.cpu().detach().numpy(),
                 plot_val=error_u,
-                title="Error of u",
+                title=f"Error of u, Time = {step * Dt:.3f}",
                 file_name=f"u\\u_error_{step}.png",
             )
             plot_figure(
                 x_data=x_plot.cpu().detach().numpy(),
                 y_data=y_plot.cpu().detach().numpy(),
                 plot_val=error_v,
-                title="Error of v",
+                title=f"Error of v, Time = {step * Dt:.3f}",
                 file_name=f"v\\v_error_{step}.png",
             )
             plot_figure(
                 x_data=x_plot.cpu().detach().numpy(),
                 y_data=y_plot.cpu().detach().numpy(),
                 plot_val=error_p,
-                title="Error of p",
+                title=f"Error of p, Time = {step * Dt:.3f}",
                 file_name=f"p\\p_error_{step}.png",
             )
             print('===== Finish the plot ... =====\n')
@@ -368,12 +368,14 @@ if __name__ == "__main__":
 
     Re = pm.REYNOLDS_NUM
     Dt = pm.TIME_STEP
-    time_end = 0.04
+    # time_end = 0.04
+    time_end = Dt * 10
+
 
     print(f'Re = {Re}, Dt = {Dt}, time_end = {time_end} ...')
 
     pwd = "C:\\barry_doc\\Training_Data\\"
-    dir_name = "TaylorGreenVortex_Streamfunction_1000_0.05\\"
+    dir_name = "TaylorGreenVortex_Streamfunction_1000_0.025\\"
     if not os.path.exists(pwd + dir_name):
         print("Creating data directory...")
         os.makedirs(pwd + dir_name)
