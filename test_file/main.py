@@ -46,6 +46,13 @@ class PinnModel(nn.Module):
         return sum(p.numel() for p in self.parameters())
     
 
+def weights_init(model):
+    """Initialize the weights of the neural network."""
+    if isinstance(model, nn.Linear):
+        # nn.init.xavier_uniform_(model.weight.data, gain=5)
+        nn.init.xavier_normal_(model.weight.data, gain=5)
+
+
 def plot_loss_figure(training_loss, test_loss, title, file_name):
     """Plot the loss function"""
     fig, ax = plt.subplots(layout="constrained")
@@ -78,8 +85,8 @@ def main():
     # Define the neural network
     u_star_model = PinnModel([2, 20, 20, 1]).to(device)
     v_star_model = PinnModel([2, 20, 20, 1]).to(device)
-    phi_model = PinnModel([2, 40, 1]).to(device)
-    psi_model = PinnModel([2, 40, 1]).to(device)
+    phi_model = PinnModel([2, 20, 20, 1]).to(device)
+    psi_model = PinnModel([2, 20, 20, 1]).to(device)
     u_model = PinnModel([2, 40, 1]).to(device)
     v_model = PinnModel([2, 40, 1]).to(device)
     p_model = PinnModel([2, 40, 1]).to(device)
@@ -101,9 +108,9 @@ def main():
     u_params = u_model.state_dict()
     v_params = v_model.state_dict()
     p_params = p_model.state_dict()
-    u_params_old = u_model.state_dict().copy()
-    v_params_old = v_model.state_dict().copy()
-    p_params_old = p_model.state_dict().copy()
+    u_params_old = u_params.copy()
+    v_params_old = v_params.copy()
+    p_params_old = p_params.copy()
 
     # Print the total number of parameters
     total_params_u_star = u_star_model.num_total_params()
@@ -144,20 +151,6 @@ def main():
     for step in range(2, int(time_end / Dt) + 1):
         print(f"Step {step}, time = {Dt * step:.3f} ...")
         print("=====================================")
-        # if step == 2 or step % 5 == 0:
-        #     # Define the training data
-        #     x_inner, y_inner = mesh.inner_points(2000)
-        #     x_bd, y_bd = mesh.boundary_points(40)
-        #     x_inner_valid, y_inner_valid = mesh.inner_points(10000)
-        #     x_bd_valid, y_bd_valid = mesh.boundary_points(100)
-
-        #     # Move the data to the device
-        #     x_inner, y_inner = x_inner.to(device), y_inner.to(device)
-        #     x_bd, y_bd = x_bd.to(device), y_bd.to(device)
-        #     x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
-        #     x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
-
-        # points = (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid)
 
         # # Predict the intermediate velocity field (u*, v*)
         print("===== Start the prediction step ... =====")
@@ -186,10 +179,14 @@ def main():
                 (Rf_u_star, Rf_u_star_bd, Rf_u_star_valid, Rf_u_star_bd_valid),
                 device
             )
-            if loss_u_star[-1] / loss_u_star_valid[-1] < 10.0:
-                u_star_overfitting = False
-            else:
+            if loss_u_star_valid[-1] / loss_u_star[-1] > 5.0:
+                u_star_overfitting = True
                 print("u* overfitting ...")
+            elif loss_u_star[-1] / loss_u_star_valid[-1] > 5.0:
+                u_star_overfitting = True
+                print("u* overfitting ...")
+            else:
+                u_star_overfitting = False
 
         print("Start training v* ...")
         while v_star_overfitting:
@@ -199,10 +196,14 @@ def main():
                 (Rf_v_star, Rf_v_star_bd, Rf_v_star_valid, Rf_v_star_bd_valid),
                 device
             )
-            if loss_v_star[-1] / loss_v_star_valid[-1] < 10.0:
-                v_star_overfitting = False
-            else:
+            if loss_v_star_valid[-1] / loss_v_star[-1] > 5.0:
+                v_star_overfitting = True
                 print("v* overfitting ...")
+            elif loss_v_star[-1] / loss_v_star_valid[-1] > 5.0:
+                v_star_overfitting = True
+                print("v* overfitting ...")
+            else:
+                v_star_overfitting = False
 
         # Plot the loss function
         plot_loss_figure(loss_u_star, loss_u_star_valid, "Loss of u*", f"loss_u_star\\loss_u_star_{step}.png")
@@ -233,10 +234,14 @@ def main():
                 Rf_proj_2_valid, Rf_proj_bd_1_valid, Rf_proj_bd_2_valid),
                 device
             )
-            if loss_proj[-1] / loss_proj_valid[-1] < 10.0:
-                proj_overfitting = False
-            else:
+            if loss_proj_valid[-1] / loss_proj[-1] > 5.0:
+                proj_overfitting = True
                 print("Projection overfitting ...")
+            elif loss_proj[-1] / loss_proj_valid[-1] > 5.0:
+                proj_overfitting = True
+                print("Projection overfitting ...")
+            else:
+                proj_overfitting = False
 
         # Plot the loss function
         plot_loss_figure(loss_proj, loss_proj_valid, "Loss of projection step", f"loss_proj\\loss_proj_{step}.png")
@@ -390,13 +395,13 @@ if __name__ == "__main__":
 
     Re = pm.REYNOLDS_NUM
     Dt = pm.TIME_STEP
-    time_end = 30.0
+    time_end = 10.0
 
 
     print(f'Re = {Re}, Dt = {Dt}, time_end = {time_end} ...')
 
     pwd = "C:\\barry_doc\\Training_Data\\"
-    dir_name = "TaylorGreenVortex_Streamfunction_1000_0.025\\"
+    dir_name = "TaylorGreenVortex_Streamfunction_1000_0.020\\"
     if not os.path.exists(pwd + dir_name):
         print("Creating data directory...")
         os.makedirs(pwd + dir_name)

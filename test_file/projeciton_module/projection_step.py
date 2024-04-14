@@ -73,7 +73,7 @@ def projection_step(phi_model, psi_model, points, rhs_vec, device):
 
     # Start training
     Niter = 1000
-    tol = 1.0e-9
+    tol = 1.0e-8
     mu = 1.0e3
     alpha = 1.0
     beta = 1.0
@@ -235,12 +235,16 @@ def projection_step(phi_model, psi_model, points, rhs_vec, device):
             print("Successful training. ...")
             print(f"iter = {iter}, loss = {loss.item():.2e}, mu = {mu:.1e}")
             break
+        elif loss.item() > 1.0e10:
+            print("Failed training. ...")
+            print(f"iter: {iter}, Loss: {loss.item():.2e}, mu: {mu:.1e}")
+            break
 
         # Update the parameter mu
         if iter % 3 == 0:
             if savedloss[iter] > savedloss[iter - 1]:
                 mu = min(2 * mu, 1e8)
             else:
-                mu = max(mu / 5, 1e-10)
+                mu = max(mu / 3, 1e-12)
 
     return phi_params, psi_params, savedloss, savedloss_valid
