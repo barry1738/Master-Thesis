@@ -117,8 +117,8 @@ def main():
 
     # # Define the training data
     mesh = pm.CreateSquareMesh()
-    x_inner, y_inner = mesh.inner_points(2000)
-    x_bd, y_bd = mesh.boundary_points(40)
+    x_inner, y_inner = mesh.inner_points(1000)
+    x_bd, y_bd = mesh.boundary_points(20)
     x_inner_valid, y_inner_valid = mesh.inner_points(10000)
     x_bd_valid, y_bd_valid = mesh.boundary_points(100)
 
@@ -174,21 +174,36 @@ def main():
             (x_inner_valid, x_bd_valid), (y_inner_valid, y_bd_valid),
             step, device
         )
+
         # Start training u* and v*
+        u_star_overfitting = True
+        v_star_overfitting = True
         print("Start training u* ...")
-        u_star_params, loss_u_star, loss_u_star_valid = pm.prediction_step(
-            u_star_model, 
-            points,
-            (Rf_u_star, Rf_u_star_bd, Rf_u_star_valid, Rf_u_star_bd_valid),
-            device
-        )
+        while u_star_overfitting:
+            u_star_params, loss_u_star, loss_u_star_valid = pm.prediction_step(
+                u_star_model, 
+                points,
+                (Rf_u_star, Rf_u_star_bd, Rf_u_star_valid, Rf_u_star_bd_valid),
+                device
+            )
+            if loss_u_star[-1] / loss_u_star_valid[-1] < 10.0:
+                u_star_overfitting = False
+            else:
+                print("u* overfitting ...")
+
         print("Start training v* ...")
-        v_star_params, loss_v_star, loss_v_star_valid = pm.prediction_step(
-            v_star_model, 
-            points,
-            (Rf_v_star, Rf_v_star_bd, Rf_v_star_valid, Rf_v_star_bd_valid),
-            device
-        )
+        while v_star_overfitting:
+            v_star_params, loss_v_star, loss_v_star_valid = pm.prediction_step(
+                v_star_model, 
+                points,
+                (Rf_v_star, Rf_v_star_bd, Rf_v_star_valid, Rf_v_star_bd_valid),
+                device
+            )
+            if loss_v_star[-1] / loss_v_star_valid[-1] < 10.0:
+                v_star_overfitting = False
+            else:
+                print("v* overfitting ...")
+
         # Plot the loss function
         plot_loss_figure(loss_u_star, loss_u_star_valid, "Loss of u*", f"loss_u_star\\loss_u_star_{step}.png")
         plot_loss_figure(loss_v_star, loss_v_star_valid, "Loss of v*", f"loss_v_star\\loss_v_star_{step}.png")
@@ -210,12 +225,19 @@ def main():
         Rf_proj_bd_2_valid = pm.exact_sol(x_bd_valid, y_bd_valid, step * Dt, Re, "v")
 
         # Start training phi and psi
-        phi_params, psi_params, loss_proj, loss_proj_valid = pm.projection_step(
-            phi_model, psi_model, points, 
-            (Rf_proj_1, Rf_proj_2, Rf_proj_bd_1, Rf_proj_bd_2, Rf_proj_1_valid, 
-             Rf_proj_2_valid, Rf_proj_bd_1_valid, Rf_proj_bd_2_valid),
-            device
-        )
+        proj_overfitting = True
+        while proj_overfitting:
+            phi_params, psi_params, loss_proj, loss_proj_valid = pm.projection_step(
+                phi_model, psi_model, points, 
+                (Rf_proj_1, Rf_proj_2, Rf_proj_bd_1, Rf_proj_bd_2, Rf_proj_1_valid, 
+                Rf_proj_2_valid, Rf_proj_bd_1_valid, Rf_proj_bd_2_valid),
+                device
+            )
+            if loss_proj[-1] / loss_proj_valid[-1] < 10.0:
+                proj_overfitting = False
+            else:
+                print("Projection overfitting ...")
+
         # Plot the loss function
         plot_loss_figure(loss_proj, loss_proj_valid, "Loss of projection step", f"loss_proj\\loss_proj_{step}.png")
         # Save the parameters
@@ -295,7 +317,7 @@ def main():
         # else:
         #     print("They are different ...")
 
-        if step % 1 == 0:
+        if step % 10 == 0:
             x_plot, y_plot = torch.meshgrid(
                 torch.linspace(0, 1, 200), torch.linspace(0, 1, 200), indexing="xy"
             )
@@ -368,8 +390,7 @@ if __name__ == "__main__":
 
     Re = pm.REYNOLDS_NUM
     Dt = pm.TIME_STEP
-    # time_end = 0.04
-    time_end = Dt * 10
+    time_end = 30.0
 
 
     print(f'Re = {Re}, Dt = {Dt}, time_end = {time_end} ...')
