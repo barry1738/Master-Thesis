@@ -198,8 +198,8 @@ def main():
             f"v_star\\v_star_loss_{step}.png",
         )
         # Save the parameters
-        torch.save(u_star_params, pwd + dir_name + f"u_star_model\\u_star_{step}.pt")
-        torch.save(v_star_params, pwd + dir_name + f"v_star_model\\v_star_{step}.pt")
+        torch.save(u_star_params, pwd + dir_name + f"params\\u_star\\u_star_{step}.pt")
+        torch.save(v_star_params, pwd + dir_name + f"params\\v_star\\v_star_{step}.pt")
         print("Finish the prediction step ...\n")
 
         # # Project the intermediate velocity field onto the space of divergence-free fields
@@ -216,14 +216,29 @@ def main():
 
         # Train the neural network
         while True:
-            phi_params, psi_params = mf.projection_step(
-                u_star_model, v_star_model, phi_model, psi_model, u_star_params, v_star_params, step
+            phi_params, psi_params, savedloss, savedloss_valid = mf.projection_step(
+                phi_model, psi_model,
+                (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid),
+                (Rf_1, Rf_2, Rf_1_bd, Rf_2_bd, Rf_1_valid, Rf_2_valid, Rf_1_bd_valid, Rf_2_bd_valid),
+                device
             )
-
-        # phi_model.load_state_dict(phi_params)
-        # psi_model.load_state_dict(psi_params)
-        torch.save(phi_model, pwd + dir_name + f"phi_model\\phi_{step}.pt")
-        torch.save(psi_model, pwd + dir_name + f"psi_model\\psi_{step}.pt")
+            if savedloss_valid[-1] / savedloss[-1] > 5.0:
+                print("Re-training the projection model ...")
+            elif savedloss[-1] / savedloss_valid[-1] > 5.0:
+                print("Re-training the projection model ...")
+            else:
+                break
+        
+        # Plot the loss function
+        plot_loss_figure(
+            savedloss,
+            savedloss_valid,
+            f"Loss function of projection, Time = {step * Dt}",
+            f"proj\\proj_loss_{step}.png",
+        )
+        # Save the parameters
+        torch.save(phi_params, pwd + dir_name + f"params\\phi\\phi_{step}.pt")
+        torch.save(psi_params, pwd + dir_name + f"params\\psi\\psi_{step}.pt")
         print("Finish the projection step ...\n")
 
         # Update the velocity field and pressure field
@@ -313,10 +328,10 @@ if __name__ == "__main__":
         os.makedirs(pwd + dir_name)
         os.makedirs(pwd + dir_name + "models")
         os.makedirs(pwd + dir_name + "params")
-        os.makedirs(pwd + dir_name + "params\\u_star_model")
-        os.makedirs(pwd + dir_name + "params\\v_star_model")
-        os.makedirs(pwd + dir_name + "params\\phi_model")
-        os.makedirs(pwd + dir_name + "params\\psi_model")
+        os.makedirs(pwd + dir_name + "params\\u_star")
+        os.makedirs(pwd + dir_name + "params\\v_star")
+        os.makedirs(pwd + dir_name + "params\\phi")
+        os.makedirs(pwd + dir_name + "params\\psi")
         os.makedirs(pwd + dir_name + "data")
         os.makedirs(pwd + dir_name + "figures\\u")
         os.makedirs(pwd + dir_name + "figures\\v")

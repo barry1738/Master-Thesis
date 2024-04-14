@@ -1,17 +1,26 @@
-def update_step(training_data, u_star_model, v_star_model, phi_model, psi_model,
-                u_star_params, v_star_params, phi_params, psi_params, prev_value, 
-                prev_value_valid):
-    """The update step for velocity and pressure fields"""
-    # Unpack the training data
-    x_inner, y_inner = training_data[0]
-    x_bd, y_bd = training_data[1]
-    x_inner_v, y_inner_v = training_data[2]
-    x_bd_v, y_bd_v = training_data[3]
+import torch
+import model_func as mf
+from projection_module import Re
 
-    x_training = torch.vstack((x_inner, x_bd))
-    y_training = torch.vstack((y_inner, y_bd))
-    x_test = torch.vstack((x_inner_v, x_bd_v))
-    y_test = torch.vstack((y_inner_v, y_bd_v))
+def update_step(model, params, points, prev_value, prev_value_valid, device):
+    """The update step for velocity and pressure fields"""
+    # Unpack the model
+    u_star_model = model[0]
+    v_star_model = model[1]
+    psi_model = model[2]
+    phi_model = model[3]
+
+    # Unpack the parameters
+    u_star_params = params[0]
+    v_star_params = params[1]
+    psi_params = params[2]
+    phi_params = params[3]
+
+    # Unpack the training data
+    x_training = points[0]
+    y_training = points[1]
+    x_test = points[2]
+    y_test = points[3]
 
     # Move the data to the device
     x_training, y_training = x_training.to(device), y_training.to(device)
@@ -40,113 +49,65 @@ def update_step(training_data, u_star_model, v_star_model, phi_model, psi_model,
     new_value_valid["dp0dx"] = prev_value_valid["dp1dx"]
     new_value_valid["dp0dy"] = prev_value_valid["dp1dy"]
 
-    # new_value["u1"] = (
-    #     u_star_model.predict(u_star_model, u_star_params, x_training, y_training)
-    #     - (2 * Dt / 3) * phi_model.predict_dx(phi_model, phi_params, x_training, y_training)
-    # ).cpu().detach().numpy()
-    # new_value["v1"] = (
-    #     v_star_model.predict(v_star_model, v_star_params, x_training, y_training)
-    #     - (2 * Dt / 3) * phi_model.predict_dy(phi_model, phi_params, x_training, y_training)
-    # ).cpu().detach().numpy()
-    new_value["u1"] = psi_model.predict_dy(psi_model, psi_params, x_training, y_training).cpu().detach().numpy()
-    new_value["v1"] = -psi_model.predict_dx(psi_model, psi_params, x_training, y_training).cpu().detach().numpy()
+    new_value["u1"] = mf.predict_dy(psi_model, psi_params, x_training, y_training).cpu().detach().numpy()
+    new_value["v1"] = -mf.predict_dx(psi_model, psi_params, x_training, y_training).cpu().detach().numpy()
     new_value["p1"] = (
         torch.tensor(prev_value["p1"], device=device)
-        + phi_model.predict(phi_model, phi_params, x_training, y_training)
+        + mf.predict(phi_model, phi_params, x_training, y_training)
         - (1 / Re) * (
-            phi_model.predict_dx(u_star_model, u_star_params, x_training, y_training)
-            + phi_model.predict_dy(v_star_model, v_star_params, x_training, y_training)
+            mf.predict_dx(u_star_model, u_star_params, x_training, y_training)
+            + mf.predict_dy(v_star_model, v_star_params, x_training, y_training)
         )
     ).cpu().detach().numpy()
-    # new_value["du1dx"] = (
-    #     u_star_model.predict_dx(u_star_model, u_star_params, x_training, y_training)
-    #     - (2 * Dt / 3) * phi_model.predict_dxx(phi_model, phi_params, x_training, y_training)
-    # ).cpu().detach().numpy()
-    # new_value["du1dy"] = (
-    #     u_star_model.predict_dy(u_star_model, u_star_params, x_training, y_training)
-    #     - (2 * Dt / 3) * phi_model.predict_dxy(phi_model, phi_params, x_training, y_training)
-    # ).cpu().detach().numpy()
-    # new_value["dv1dx"] = (
-    #     v_star_model.predict_dx(v_star_model, v_star_params, x_training, y_training)
-    #     - (2 * Dt / 3) * phi_model.predict_dyx(phi_model, phi_params, x_training, y_training)
-    # ).cpu().detach().numpy()
-    # new_value["dv1dy"] = (
-    #     v_star_model.predict_dy(v_star_model, v_star_params, x_training, y_training)
-    #     - (2 * Dt / 3) * phi_model.predict_dyy(phi_model, phi_params, x_training, y_training)
-    # ).cpu().detach().numpy()
-    new_value["du1dx"] = psi_model.predict_dyx(psi_model, psi_params, x_training, y_training).cpu().detach().numpy()
-    new_value["du1dy"] = psi_model.predict_dyy(psi_model, psi_params, x_training, y_training).cpu().detach().numpy()
-    new_value["dv1dx"] = -psi_model.predict_dxx(psi_model, psi_params, x_training, y_training).cpu().detach().numpy()
-    new_value["dv1dy"] = -psi_model.predict_dxy(psi_model, psi_params, x_training, y_training).cpu().detach().numpy()
+    new_value["du1dx"] = mf.predict_dyx(psi_model, psi_params, x_training, y_training).cpu().detach().numpy()
+    new_value["du1dy"] = mf.predict_dyy(psi_model, psi_params, x_training, y_training).cpu().detach().numpy()
+    new_value["dv1dx"] = -mf.predict_dxx(psi_model, psi_params, x_training, y_training).cpu().detach().numpy()
+    new_value["dv1dy"] = -mf.predict_dxy(psi_model, psi_params, x_training, y_training).cpu().detach().numpy()
     new_value["dp1dx"] = (
         torch.tensor(prev_value["dp1dx"], device=device)
-        + phi_model.predict_dx(phi_model, phi_params, x_training, y_training)
+        + mf.predict_dx(phi_model, phi_params, x_training, y_training)
         - (1 / Re) * (
-            phi_model.predict_dxx(u_star_model, u_star_params, x_training, y_training)
-            + phi_model.predict_dyx(v_star_model, v_star_params, x_training, y_training)
+            mf.predict_dxx(u_star_model, u_star_params, x_training, y_training)
+            + mf.predict_dyx(v_star_model, v_star_params, x_training, y_training)
         )
     ).cpu().detach().numpy()
     new_value["dp1dy"] = (
         torch.tensor(prev_value["dp1dy"], device=device)
-        + phi_model.predict_dy(phi_model, phi_params, x_training, y_training)
+        + mf.predict_dy(phi_model, phi_params, x_training, y_training)
         - (1 / Re) * (
-            phi_model.predict_dxy(u_star_model, u_star_params, x_training, y_training)
-            + phi_model.predict_dyy(v_star_model, v_star_params, x_training, y_training)
+            mf.predict_dxy(u_star_model, u_star_params, x_training, y_training)
+            + mf.predict_dyy(v_star_model, v_star_params, x_training, y_training)
         )
     ).cpu().detach().numpy()
 
-    # new_value_valid["u1"] = (
-    #     u_star_model.predict(u_star_model, u_star_params, x_test, y_test)
-    #     - (2 * Dt / 3) * phi_model.predict_dx(phi_model, phi_params, x_test, y_test)
-    # ).cpu().detach().numpy()
-    # new_value_valid["v1"] = (
-    #     v_star_model.predict(v_star_model, v_star_params, x_test, y_test)
-    #     - (2 * Dt / 3) * phi_model.predict_dy(phi_model, phi_params, x_test, y_test)
-    # ).cpu().detach().numpy()
-    new_value_valid["u1"] = psi_model.predict_dy(psi_model, psi_params, x_test, y_test).cpu().detach().numpy()
-    new_value_valid["v1"] = -psi_model.predict_dx(psi_model, psi_params, x_test, y_test).cpu().detach().numpy()
+    new_value_valid["u1"] = mf.predict_dy(psi_model, psi_params, x_test, y_test).cpu().detach().numpy()
+    new_value_valid["v1"] = -mf.predict_dx(psi_model, psi_params, x_test, y_test).cpu().detach().numpy()
     new_value_valid["p1"] = (
         torch.tensor(prev_value_valid["p1"], device=device)
-        + phi_model.predict(phi_model, phi_params, x_test, y_test)
+        + mf.predict(phi_model, phi_params, x_test, y_test)
         - (1 / Re) * (
-            phi_model.predict_dx(u_star_model, u_star_params, x_test, y_test)
-            + phi_model.predict_dy(v_star_model, v_star_params, x_test, y_test)
+            mf.predict_dx(u_star_model, u_star_params, x_test, y_test)
+            + mf.predict_dy(v_star_model, v_star_params, x_test, y_test)
         )
     ).cpu().detach().numpy()
-    # new_value_valid["du1dx"] = (
-    #     u_star_model.predict_dx(u_star_model, u_star_params, x_test, y_test)
-    #     - (2 * Dt / 3) * phi_model.predict_dxx(phi_model, phi_params, x_test, y_test)
-    # ).cpu().detach().numpy()
-    # new_value_valid["du1dy"] = (
-    #     u_star_model.predict_dy(u_star_model, u_star_params, x_test, y_test)
-    #     - (2 * Dt / 3) * phi_model.predict_dxy(phi_model, phi_params, x_test, y_test)
-    # ).cpu().detach().numpy()
-    # new_value_valid["dv1dx"] = (
-    #     v_star_model.predict_dx(v_star_model, v_star_params, x_test, y_test)
-    #     - (2 * Dt / 3) * phi_model.predict_dyx(phi_model, phi_params, x_test, y_test)
-    # ).cpu().detach().numpy()
-    # new_value_valid["dv1dy"] = (
-    #     v_star_model.predict_dy(v_star_model, v_star_params, x_test, y_test)
-    #     - (2 * Dt / 3) * phi_model.predict_dyy(phi_model, phi_params, x_test, y_test)
-    # ).cpu().detach().numpy()
-    new_value_valid["du1dx"] = psi_model.predict_dyx(psi_model, psi_params, x_test, y_test).cpu().detach().numpy()
-    new_value_valid["du1dy"] = psi_model.predict_dyy(psi_model, psi_params, x_test, y_test).cpu().detach().numpy()
-    new_value_valid["dv1dx"] = -psi_model.predict_dxx(psi_model, psi_params, x_test, y_test).cpu().detach().numpy()
-    new_value_valid["dv1dy"] = -psi_model.predict_dxy(psi_model, psi_params, x_test, y_test).cpu().detach().numpy()
+    new_value_valid["du1dx"] = mf.predict_dyx(psi_model, psi_params, x_test, y_test).cpu().detach().numpy()
+    new_value_valid["du1dy"] = mf.predict_dyy(psi_model, psi_params, x_test, y_test).cpu().detach().numpy()
+    new_value_valid["dv1dx"] = -mf.predict_dxx(psi_model, psi_params, x_test, y_test).cpu().detach().numpy()
+    new_value_valid["dv1dy"] = -mf.predict_dxy(psi_model, psi_params, x_test, y_test).cpu().detach().numpy()
     new_value_valid["dp1dx"] = (
         torch.tensor(prev_value_valid["dp1dx"], device=device)
-        + phi_model.predict_dx(phi_model, phi_params, x_test, y_test)
+        + mf.predict_dx(phi_model, phi_params, x_test, y_test)
         - (1 / Re) * (
-            phi_model.predict_dxx(u_star_model, u_star_params, x_test, y_test)
-            + phi_model.predict_dyx(v_star_model, v_star_params, x_test, y_test)
+            mf.predict_dxx(u_star_model, u_star_params, x_test, y_test)
+            + mf.predict_dyx(v_star_model, v_star_params, x_test, y_test)
         )
     ).cpu().detach().numpy()
     new_value_valid["dp1dy"] = (
         torch.tensor(prev_value_valid["dp1dy"], device=device)
-        + phi_model.predict_dy(phi_model, phi_params, x_test, y_test)
+        + mf.predict_dy(phi_model, phi_params, x_test, y_test)
         - (1 / Re) * (
-            phi_model.predict_dxy(u_star_model, u_star_params, x_test, y_test)
-            + phi_model.predict_dyy(v_star_model, v_star_params, x_test, y_test)
+            mf.predict_dxy(u_star_model, u_star_params, x_test, y_test)
+            + mf.predict_dyy(v_star_model, v_star_params, x_test, y_test)
         )
     ).cpu().detach().numpy()
 
