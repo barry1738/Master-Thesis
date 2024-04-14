@@ -1,9 +1,8 @@
 import torch
 import torch.nn as nn
 from torch.func import vmap, jacrev, grad
-from projeciton_module.config import REYNOLDS_NUM, TIME_STEP
-from projeciton_module.utilities import qr_decomposition, cholesky
 from model_func import predict, predict_dxx, predict_dyy
+from projection_module import REYNOLDS_NUM, TIME_STEP, qr_decomposition
 
 
 def prediction_step(model, points, rhs_vec, device):

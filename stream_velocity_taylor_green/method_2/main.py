@@ -24,7 +24,7 @@ import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import model_func as mf
-import projeciton_module as pm
+import projection_module as pm
 
 class PinnModel(nn.Module):
     def __init__(self, layers):

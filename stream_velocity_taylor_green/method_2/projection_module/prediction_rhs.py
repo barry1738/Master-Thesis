@@ -1,8 +1,8 @@
 # import torch
 import model_func as mf
 from torch.func import grad, vmap
-from projeciton_module.utilities import exact_sol
-from projeciton_module.config import REYNOLDS_NUM, TIME_STEP
+from projection_module.utilities import exact_sol
+from projection_module.config import REYNOLDS_NUM, TIME_STEP
 
 def prediction_rhs(model, params, x, y, step, device):
     """
