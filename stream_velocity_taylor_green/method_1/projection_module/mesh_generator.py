@@ -2,8 +2,6 @@ import torch
 import numpy as np
 from scipy.stats import qmc
 
-torch.set_default_dtype(torch.float64)
-
 
 class CreateSquareMesh:
     def inner_points(self, nx):

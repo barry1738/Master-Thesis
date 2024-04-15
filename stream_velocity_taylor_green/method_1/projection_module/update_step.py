@@ -1,6 +1,6 @@
 import torch
 import model_func as mf
-from projection_module import Re
+from projection_module.config import REYNOLDS_NUM as Re
 
 def update_step(model, params, points, prev_value, prev_value_valid, device):
     """The update step for velocity and pressure fields"""

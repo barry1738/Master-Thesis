@@ -1,5 +1,5 @@
 from torch.func import grad, vmap
-from projection_module import exact_sol
+from projection_module.utilities import exact_sol
 
 
 def initial_value(x_training, y_training, x_test, y_test, Dt, Re):

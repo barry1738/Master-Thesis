@@ -104,19 +104,22 @@ def main():
     print(f"Total number of psi parameters: {total_params_psi}")
 
     # Define the training data
-    mesh = mf.CreateSquareMesh()
+    mesh = pm.CreateSquareMesh()
     x_inner, y_inner = mesh.inner_points(1000)
     x_bd, y_bd = mesh.boundary_points(30)
-    x_inner_valid, y_inner_valid = mesh.inner_points(90000)
-    x_bd_valid, y_bd_valid = mesh.boundary_points(300)
-
-    # Pack the training data
-    training_data = (
-        (x_inner, y_inner),
-        (x_bd, y_bd),
-        (x_inner_valid, y_inner_valid),
-        (x_bd_valid, y_bd_valid),
+    x_valid, y_valid = torch.meshgrid(
+        torch.linspace(0, 1, 200), torch.linspace(0, 1, 200), indexing="xy"
     )
+    x_inner_valid = x_valid[1:-1, 1:-1].reshape(-1, 1)
+    y_inner_valid = y_valid[1:-1, 1:-1].reshape(-1, 1)
+    x_bd_valid = torch.vstack(
+        (x_valid[0, :], x_valid[-1, :], x_valid[:, 0], x_valid[:, -1])
+    ).reshape(-1, 1)
+    y_bd_valid = torch.vstack(
+        (y_valid[0, :], y_valid[-1, :], y_valid[:, 0], y_valid[:, -1])
+    ).reshape(-1, 1)
+    # x_inner_valid, y_inner_valid = mesh.inner_points(90000)
+    # x_bd_valid, y_bd_valid = mesh.boundary_points(300)
 
     # Plot the training data
     fig, ax = plt.subplots(layout="constrained")
@@ -129,18 +132,36 @@ def main():
     # ax.legend()
     plt.savefig(pwd + dir_name + "figures\\training_data.png", dpi=150)
 
+    fig, ax = plt.subplots(layout="constrained")
+    ax.scatter(x_inner_valid, y_inner_valid, s=1, c="k", label="Inner points")
+    ax.scatter(x_bd_valid, y_bd_valid, s=1, c="r", label="Boundary points")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title("Validation data")
+    ax.set_aspect("equal")
+    plt.savefig(pwd + dir_name + "figures\\validation_data.png", dpi=150)
+
+    # # move the data to the device
+    # x_inner, y_inner = x_inner.to(device), y_inner.to(device)
+    # x_bd, y_bd = x_bd.to(device), y_bd.to(device)
+    # x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
+    # x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
+    # x_valid, y_valid = x_valid.to(device), y_valid.to(device)
+
     # Initialize the previous value
     x_training = torch.vstack((x_inner, x_bd))
     y_training = torch.vstack((y_inner, y_bd))
     x_test = torch.vstack((x_inner_valid, x_bd_valid))
     y_test = torch.vstack((y_inner_valid, y_bd_valid))
 
+    print("===== Compute the initial value ... =====")
     prev_value, prev_value_valid = pm.initial_value(
         x_training, y_training, x_test, y_test, Dt, Re
     )
     # Save the initial value
     torch.save(prev_value, pwd + dir_name + "data\\data_1.pt")
     torch.save(prev_value_valid, pwd + dir_name + "data\\data_valid_1.pt")
+    print("===== Finish the initial value ... =====\n")
     
     for step in range(2, int(time_end / Dt) + 1):
         print(f"Step {step}, time = {Dt * step:.3f} ...")
@@ -189,7 +210,7 @@ def main():
             loss_u_star,
             loss_u_star_valid,
             f"Loss function of u*, Time = {step * Dt}",
-            f"u_satr\\u_star_loss_{step}.png",
+            f"u_star\\u_star_loss_{step}.png",
         )
         plot_loss_figure(
             loss_v_star,
@@ -200,23 +221,23 @@ def main():
         # Save the parameters
         torch.save(u_star_params, pwd + dir_name + f"params\\u_star\\u_star_{step}.pt")
         torch.save(v_star_params, pwd + dir_name + f"params\\v_star\\v_star_{step}.pt")
-        print("Finish the prediction step ...\n")
+        print("===== Finish the prediction step ... =====\n")
 
         # # Project the intermediate velocity field onto the space of divergence-free fields
         print("===== Start the projection step ... =====")
         # Compute the right-hand side of the Poisson equation
-        Rf_1 = u_star_model.predict(u_star_model, u_star_params, x_inner, y_inner)
-        Rf_2 = v_star_model.predict(v_star_model, v_star_params, x_inner, y_inner)
-        Rf_1_valid = u_star_model.predict(u_star_model, u_star_params, x_inner_valid, y_inner_valid)
-        Rf_2_valid = v_star_model.predict(v_star_model, v_star_params, x_inner_valid, y_inner_valid)
-        Rf_1_bd = mf.exact_sol(x_bd, y_bd, step * Dt, Re, "u")
-        Rf_2_bd = mf.exact_sol(x_bd, y_bd, step * Dt, Re, "v")
-        Rf_1_bd_valid = mf.exact_sol(x_bd_valid, y_bd_valid, step * Dt, Re, "u")
-        Rf_2_bd_valid = mf.exact_sol(x_bd_valid, y_bd_valid, step * Dt, Re, "v")
+        Rf_1 = mf.predict(u_star_model, u_star_params, x_inner, y_inner)
+        Rf_2 = mf.predict(v_star_model, v_star_params, x_inner, y_inner)
+        Rf_1_valid = mf.predict(u_star_model, u_star_params, x_inner_valid, y_inner_valid)
+        Rf_2_valid = mf.predict(v_star_model, v_star_params, x_inner_valid, y_inner_valid)
+        Rf_1_bd = pm.exact_sol(x_bd, y_bd, step * Dt, Re, "u")
+        Rf_2_bd = pm.exact_sol(x_bd, y_bd, step * Dt, Re, "v")
+        Rf_1_bd_valid = pm.exact_sol(x_bd_valid, y_bd_valid, step * Dt, Re, "u")
+        Rf_2_bd_valid = pm.exact_sol(x_bd_valid, y_bd_valid, step * Dt, Re, "v")
 
         # Train the neural network
         while True:
-            phi_params, psi_params, savedloss, savedloss_valid = mf.projection_step(
+            phi_params, psi_params, savedloss, savedloss_valid = pm.projection_step(
                 phi_model, psi_model,
                 (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid),
                 (Rf_1, Rf_2, Rf_1_bd, Rf_2_bd, Rf_1_valid, Rf_2_valid, Rf_1_bd_valid, Rf_2_bd_valid),
@@ -239,26 +260,28 @@ def main():
         # Save the parameters
         torch.save(phi_params, pwd + dir_name + f"params\\phi\\phi_{step}.pt")
         torch.save(psi_params, pwd + dir_name + f"params\\psi\\psi_{step}.pt")
-        print("Finish the projection step ...\n")
+        print("===== Finish the projection step ... =====\n")
 
         # Update the velocity field and pressure field
-        new_value, new_value_valid = update_step(
-            training_data, u_star_model, v_star_model, phi_model, psi_model,
-            u_star_params, v_star_params, phi_params, psi_params,
-            prev_value, prev_value_valid
+        print("===== Start the update step ... =====")
+        new_value, new_value_valid = pm.update_step(
+            (u_star_model, v_star_model, psi_model, phi_model),
+            (u_star_params, v_star_params, psi_params, phi_params),
+            (x_training, y_training, x_test, y_test),
+            prev_value, prev_value_valid, device
         )
 
         prev_value.update(new_value)
         prev_value_valid.update(new_value_valid)
         torch.save(prev_value, pwd + dir_name + f"data\\data_{step}.pt")
         torch.save(prev_value_valid, pwd + dir_name + f"data\\data_valid_{step}.pt")
-        print("Finish the update step ...\n")
+        print("===== Finish the update step ... =====\n")
 
-        if step % 10 == 0:
+        if step % 1 == 0:
             # Plot the velocity field and pressure field
-            exact_u = exact_sol(torch.tensor(prev_value_valid["x_data"]), torch.tensor(prev_value_valid["y_data"]), step * Dt, Re, "u").detach().numpy()
-            exact_v = exact_sol(torch.tensor(prev_value_valid["x_data"]), torch.tensor(prev_value_valid["y_data"]), step * Dt, Re, "v").detach().numpy()
-            exact_p = exact_sol(torch.tensor(prev_value_valid["x_data"]), torch.tensor(prev_value_valid["y_data"]), step * Dt, Re, "p").detach().numpy()
+            exact_u = pm.exact_sol(x_valid, y_valid, step * Dt, Re, "u").detach().numpy()
+            exact_v = pm.exact_sol(x_valid, y_valid, step * Dt, Re, "v").detach().numpy()
+            exact_p = pm.exact_sol(x_valid, y_valid, step * Dt, Re, "p").detach().numpy()
             error_u = np.abs(prev_value_valid["u1"] - exact_u)
             error_v = np.abs(prev_value_valid["v1"] - exact_v)
             error_p = np.abs(prev_value_valid["p1"] - exact_p)
@@ -306,7 +329,7 @@ def main():
                 title="Error of p",
                 file_name=f"p\\p_error_{step}.png",
             )
-            print('Finish the plot ...\n')
+            print('===== Finish the plot ... =====\n')
 
 
 if __name__ == "__main__":
@@ -317,8 +340,8 @@ if __name__ == "__main__":
     # Set the font size in figures
     plt.rcParams.update({"font.size": 12})
 
-    Re = mf.REYNOLDS_NUM
-    Dt = mf.TIME_STEP
+    Re = pm.REYNOLDS_NUM
+    Dt = pm.TIME_STEP
     time_end = 10.0
 
     pwd = "C:\\barry_doc\\Training_Data\\"

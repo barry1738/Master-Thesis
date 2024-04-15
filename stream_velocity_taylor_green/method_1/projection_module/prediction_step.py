@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 from torch.func import vmap, jacrev, grad
 from model_func import predict, predict_dxx, predict_dyy
-from projection_module import REYNOLDS_NUM, TIME_STEP, qr_decomposition
+from projection_module.config import REYNOLDS_NUM, TIME_STEP
+from projection_module.utilities import qr_decomposition
 
 
 def prediction_step(model, points, rhs_vec, device):
@@ -26,6 +27,12 @@ def prediction_step(model, points, rhs_vec, device):
     y_inner_v = points[5]
     x_bd_v = points[6]
     y_bd_v = points[7]
+
+    # Move the points to the device
+    x_inner, y_inner = x_inner.to(device), y_inner.to(device)
+    x_bd, y_bd = x_bd.to(device), y_bd.to(device)
+    x_inner_v, y_inner_v = x_inner_v.to(device), y_inner_v.to(device)
+    x_bd_v, y_bd_v = x_bd_v.to(device), y_bd_v.to(device)
 
     # Unpack the right-hand side values
     Rf_inner = rhs_vec[0]

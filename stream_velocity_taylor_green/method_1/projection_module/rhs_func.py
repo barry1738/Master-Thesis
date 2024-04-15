@@ -1,5 +1,5 @@
 import torch
-from projection_module import exact_sol
+from projection_module.utilities import exact_sol
 
 
 def prediction_step_rhs(x, y, prev_val, step, Dt, Re, device):
@@ -34,7 +34,7 @@ def prediction_step_rhs(x, y, prev_val, step, Dt, Re, device):
         - (2 * Dt) * (torch.tensor(prev_val["dp1dy"][:x_inner.size(0), :]))
     ).to(device)
 
-    Rf_u_bd = exact_sol(x_bd, y_bd, step * Dt, Re, "u")
-    Rf_v_bd = exact_sol(x_bd, y_bd, step * Dt, Re, "v")
+    Rf_u_bd = exact_sol(x_bd, y_bd, step * Dt, Re, "u").to(device)
+    Rf_v_bd = exact_sol(x_bd, y_bd, step * Dt, Re, "v").to(device)
 
     return Rf_u_inner, Rf_v_inner, Rf_u_bd, Rf_v_bd
