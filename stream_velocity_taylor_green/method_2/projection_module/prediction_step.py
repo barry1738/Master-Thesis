@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.func import vmap, jacrev, grad
 from projection_module.config import REYNOLDS_NUM, TIME_STEP
-from projection_module.utilities import qr_decomposition, cholesky
+from projection_module.utilities import qr_decomposition
 from model_func import predict, predict_dxx, predict_dyy
 
 
@@ -120,7 +120,7 @@ def prediction_step(model, points, rhs_vec, device):
             if savedloss[iter] > savedloss[iter - 1]:
                 mu = min(2 * mu, 1e8)
             else:
-                mu = max(mu / 3, 1e-12)
+                mu = max(mu / 3, 1e-10)
 
         # Compute alpha_bar and beta_bar, then update alpha and beta
         if iter % 100 == 0:
@@ -155,7 +155,7 @@ def prediction_step(model, points, rhs_vec, device):
             beta = (1 - 0.1) * beta + 0.1 * beta_bar
             print(f"alpha: {alpha:.2f}, beta: {beta:.2f}")
 
-        if iter % 5 == 0:
+        if iter % 50 == 0:
             print(f"iter: {iter}, Loss: {loss.item():.2e}, mu: {mu:.1e}")
 
     return params, savedloss, savedloss_valid

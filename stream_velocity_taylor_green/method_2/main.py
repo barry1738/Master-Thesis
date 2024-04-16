@@ -87,9 +87,9 @@ def main():
     v_star_model = PinnModel([2, 20, 20, 1]).to(device)
     phi_model = PinnModel([2, 20, 20, 1]).to(device)
     psi_model = PinnModel([2, 20, 20, 1]).to(device)
-    u_model = PinnModel([2, 40, 1]).to(device)
-    v_model = PinnModel([2, 40, 1]).to(device)
-    p_model = PinnModel([2, 40, 1]).to(device)
+    u_model = PinnModel([2, 20, 20, 1]).to(device)
+    v_model = PinnModel([2, 20, 20, 1]).to(device)
+    p_model = PinnModel([2, 20, 20, 1]).to(device)
 
     # Save the model
     torch.save(u_star_model, pwd + dir_name + "models\\u_star_model.pt")
@@ -185,6 +185,9 @@ def main():
             elif loss_u_star[-1] / loss_u_star_valid[-1] > 5.0:
                 u_star_overfitting = True
                 print("u* overfitting ...")
+            elif loss_u_star[-1] > 1.0e10:
+                u_star_overfitting = True
+                print("u* overfitting ...")
             else:
                 u_star_overfitting = False
 
@@ -202,12 +205,25 @@ def main():
             elif loss_v_star[-1] / loss_v_star_valid[-1] > 5.0:
                 v_star_overfitting = True
                 print("v* overfitting ...")
+            elif loss_v_star[-1] > 1.0e10:
+                v_star_overfitting = True
+                print("v* overfitting ...")
             else:
                 v_star_overfitting = False
 
         # Plot the loss function
-        plot_loss_figure(loss_u_star, loss_u_star_valid, "Loss of u*", f"loss_u_star\\loss_u_star_{step}.png")
-        plot_loss_figure(loss_v_star, loss_v_star_valid, "Loss of v*", f"loss_v_star\\loss_v_star_{step}.png")
+        plot_loss_figure(
+            loss_u_star,
+            loss_u_star_valid,
+            f"Loss of u*, Time = {step * Dt:.3f}",
+            f"loss_u_star\\loss_u_star_{step}.png",
+        )
+        plot_loss_figure(
+            loss_v_star,
+            loss_v_star_valid,
+            f"Loss of v*, Time = {step * Dt:.3f}",
+            f"loss_v_star\\loss_v_star_{step}.png",
+        )
         # Save the parameters
         torch.save(u_star_params, pwd + dir_name + f"params\\u_star_params\\u_star_{step}.pt")
         torch.save(v_star_params, pwd + dir_name + f"params\\v_star_params\\v_star_{step}.pt")
@@ -234,17 +250,25 @@ def main():
                 Rf_proj_2_valid, Rf_proj_bd_1_valid, Rf_proj_bd_2_valid),
                 device
             )
-            if loss_proj_valid[-1] / loss_proj[-1] > 5.0:
+            if loss_proj_valid[-1] / loss_proj[-1] > 10.0:
                 proj_overfitting = True
                 print("Projection overfitting ...")
-            elif loss_proj[-1] / loss_proj_valid[-1] > 5.0:
+            elif loss_proj[-1] / loss_proj_valid[-1] > 10.0:
+                proj_overfitting = True
+                print("Projection overfitting ...")
+            elif loss_proj[-1] > 1.0e10:
                 proj_overfitting = True
                 print("Projection overfitting ...")
             else:
                 proj_overfitting = False
 
         # Plot the loss function
-        plot_loss_figure(loss_proj, loss_proj_valid, "Loss of projection step", f"loss_proj\\loss_proj_{step}.png")
+        plot_loss_figure(
+            loss_proj,
+            loss_proj_valid,
+            f"Loss of projection step, Time = {step * Dt:.3f}",
+            f"loss_proj\\loss_proj_{step}.png",
+        )
         # Save the parameters
         torch.save(phi_params, pwd + dir_name + f"params\\phi_params\\phi_{step}.pt")
         torch.save(psi_params, pwd + dir_name + f"params\\psi_params\\psi_{step}.pt")
@@ -308,9 +332,24 @@ def main():
         p_params, loss_p, loss_p_valid = pm.update_step(p_model, points, (Rf_p, Rf_p_valid), device)
 
         # Plot the loss function
-        plot_loss_figure(loss_u, loss_u_valid, "Loss of u", f"loss_u\\loss_u_{step}.png")
-        plot_loss_figure(loss_v, loss_v_valid, "Loss of v", f"loss_v\\loss_v_{step}.png")
-        plot_loss_figure(loss_p, loss_p_valid, "Loss of p", f"loss_p\\loss_p_{step}.png")
+        plot_loss_figure(
+            loss_u, 
+            loss_u_valid, 
+            f"Loss of u, Time = {step * Dt:.3f}", 
+            f"loss_u\\loss_u_{step}.png"
+        )
+        plot_loss_figure(
+            loss_v, 
+            loss_v_valid, 
+            f"Loss of v, Time = {step * Dt:.3f}", 
+            f"loss_v\\loss_v_{step}.png"
+        )
+        plot_loss_figure(
+            loss_p, 
+            loss_p_valid, 
+            f"Loss of p, Time = {step * Dt:.3f}", 
+            f"loss_p\\loss_p_{step}.png"
+        )
         # Save the parameters
         torch.save(u_params, pwd + dir_name + f"params\\u_params\\u_{step}.pt")
         torch.save(v_params, pwd + dir_name + f"params\\v_params\\v_{step}.pt")
@@ -395,7 +434,7 @@ if __name__ == "__main__":
 
     Re = pm.REYNOLDS_NUM
     Dt = pm.TIME_STEP
-    time_end = 10.0
+    time_end = 5.0
 
 
     print(f'Re = {Re}, Dt = {Dt}, time_end = {time_end} ...')
