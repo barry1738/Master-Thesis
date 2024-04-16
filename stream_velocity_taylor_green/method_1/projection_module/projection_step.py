@@ -40,6 +40,16 @@ def projection_step(phi_model, psi_model, points, rhs_vec, device):
     Rf_proj_2_valid = rhs_vec[5]
     Rf_bd_1_valid = rhs_vec[6]
     Rf_bd_2_valid = rhs_vec[7]
+
+    # Move the points to the device
+    x_inner = x_inner.to(device)
+    y_inner = y_inner.to(device)
+    x_bd = x_bd.to(device)
+    y_bd = y_bd.to(device)
+    x_inner_v = x_inner_v.to(device)
+    y_inner_v = y_inner_v.to(device)
+    x_bd_v = x_bd_v.to(device)
+    y_bd_v = y_bd_v.to(device)
     
     def compute_loss_res_1(model1, model2, params1, params2, x, y, Rf_proj_1):
         """Compute the residual loss function."""
@@ -73,7 +83,7 @@ def projection_step(phi_model, psi_model, points, rhs_vec, device):
 
     # Start training
     Niter = 1000
-    tol = 1.0e-8
+    tol = 1.0e-9
     mu = 1.0e3
     alpha = 1.0
     beta = 1.0
@@ -241,10 +251,10 @@ def projection_step(phi_model, psi_model, points, rhs_vec, device):
             break
 
         # Update the parameter mu
-        if iter % 3 == 0:
+        if iter % 5 == 0:
             if savedloss[iter] > savedloss[iter - 1]:
                 mu = min(2 * mu, 1e8)
             else:
-                mu = max(mu / 3, 1e-12)
+                mu = max(mu / 3, 1e-10)
 
     return phi_params, psi_params, savedloss, savedloss_valid

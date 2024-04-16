@@ -1,8 +1,11 @@
 import torch
 from projection_module.utilities import exact_sol
+from projection_module.config import REYNOLDS_NUM, TIME_STEP
 
+Re = REYNOLDS_NUM
+Dt = TIME_STEP
 
-def prediction_step_rhs(x, y, prev_val, step, Dt, Re, device):
+def prediction_step_rhs(x, y, prev_val, step, device):
     x_inner, x_bd = x
     y_inner, y_bd = y
 

@@ -7,14 +7,14 @@ def update_step(model, params, points, prev_value, prev_value_valid, device):
     # Unpack the model
     u_star_model = model[0]
     v_star_model = model[1]
-    psi_model = model[2]
-    phi_model = model[3]
+    phi_model = model[2]
+    psi_model = model[3]
 
     # Unpack the parameters
     u_star_params = params[0]
     v_star_params = params[1]
-    psi_params = params[2]
-    phi_params = params[3]
+    phi_params = params[2]
+    psi_params = params[3]
 
     # Unpack the training data
     x_training = points[0]

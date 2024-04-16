@@ -105,8 +105,8 @@ def main():
 
     # Define the training data
     mesh = pm.CreateSquareMesh()
-    x_inner, y_inner = mesh.inner_points(1000)
-    x_bd, y_bd = mesh.boundary_points(30)
+    x_inner, y_inner = mesh.inner_points(500)
+    x_bd, y_bd = mesh.boundary_points(20)
     x_valid, y_valid = torch.meshgrid(
         torch.linspace(0, 1, 200), torch.linspace(0, 1, 200), indexing="xy"
     )
@@ -118,8 +118,13 @@ def main():
     y_bd_valid = torch.vstack(
         (y_valid[0, :], y_valid[-1, :], y_valid[:, 0], y_valid[:, -1])
     ).reshape(-1, 1)
-    # x_inner_valid, y_inner_valid = mesh.inner_points(90000)
-    # x_bd_valid, y_bd_valid = mesh.boundary_points(300)
+    x_valid = torch.vstack((x_inner_valid, x_bd_valid))
+    y_valid = torch.vstack((y_inner_valid, y_bd_valid))
+
+    x_training = torch.vstack((x_inner, x_bd))
+    y_training = torch.vstack((y_inner, y_bd))
+    x_test = torch.vstack((x_inner_valid, x_bd_valid))
+    y_test = torch.vstack((y_inner_valid, y_bd_valid))
 
     # Plot the training data
     fig, ax = plt.subplots(layout="constrained")
@@ -141,22 +146,9 @@ def main():
     ax.set_aspect("equal")
     plt.savefig(pwd + dir_name + "figures\\validation_data.png", dpi=150)
 
-    # # move the data to the device
-    # x_inner, y_inner = x_inner.to(device), y_inner.to(device)
-    # x_bd, y_bd = x_bd.to(device), y_bd.to(device)
-    # x_inner_valid, y_inner_valid = x_inner_valid.to(device), y_inner_valid.to(device)
-    # x_bd_valid, y_bd_valid = x_bd_valid.to(device), y_bd_valid.to(device)
-    # x_valid, y_valid = x_valid.to(device), y_valid.to(device)
-
-    # Initialize the previous value
-    x_training = torch.vstack((x_inner, x_bd))
-    y_training = torch.vstack((y_inner, y_bd))
-    x_test = torch.vstack((x_inner_valid, x_bd_valid))
-    y_test = torch.vstack((y_inner_valid, y_bd_valid))
-
     print("===== Compute the initial value ... =====")
     prev_value, prev_value_valid = pm.initial_value(
-        x_training, y_training, x_test, y_test, Dt, Re
+        x_training, y_training, x_test, y_test
     )
     # Save the initial value
     torch.save(prev_value, pwd + dir_name + "data\\data_1.pt")
@@ -171,11 +163,11 @@ def main():
         print("===== Start the prediction step ... =====")
         # Compute the right-hand side of the Navier-Stokes equations
         Rf_u_inner, Rf_v_inner, Rf_u_bd, Rf_v_bd = pm.prediction_step_rhs(
-            (x_inner, x_bd), (y_inner, y_bd), prev_value, step, Dt, Re, device
+            (x_inner, x_bd), (y_inner, y_bd), prev_value, step, device
         )
         Rf_u_inner_valid, Rf_v_inner_valid, Rf_u_bd_valid, Rf_v_bd_valid = pm.prediction_step_rhs(
             (x_inner_valid, x_bd_valid), (y_inner_valid, y_bd_valid), 
-            prev_value_valid, step, Dt, Re, device
+            prev_value_valid, step, device
         )
 
         # Train the neural network
@@ -185,9 +177,11 @@ def main():
                 (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid), 
                 (Rf_u_inner, Rf_u_bd, Rf_u_inner_valid, Rf_u_bd_valid), device
             )
-            if loss_u_star_valid[-1] / loss_u_star[-1] > 5.0:
+            if loss_u_star_valid[-1] / loss_u_star[-1] > 10.0:
                 print("Re-training the u* model ...")
-            elif loss_u_star[-1] / loss_u_star_valid[-1] > 5.0:
+            elif loss_u_star[-1] / loss_u_star_valid[-1] > 10.0:
+                print("Re-training the u* model ...")
+            elif loss_u_star[-1] > 1e10:
                 print("Re-training the u* model ...")
             else:
                 break
@@ -198,9 +192,11 @@ def main():
                 (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid), 
                 (Rf_v_inner, Rf_v_bd, Rf_v_inner_valid, Rf_v_bd_valid), device
             )
-            if loss_v_star_valid[-1] / loss_v_star[-1] > 5.0:
+            if loss_v_star_valid[-1] / loss_v_star[-1] > 10.0:
                 print("Re-training the v* model ...")
-            elif loss_v_star[-1] / loss_v_star_valid[-1] > 5.0:
+            elif loss_v_star[-1] / loss_v_star_valid[-1] > 10.0:
+                print("Re-training the v* model ...")
+            elif loss_v_star[-1] > 1e10:
                 print("Re-training the v* model ...")
             else:
                 break
@@ -226,34 +222,36 @@ def main():
         # # Project the intermediate velocity field onto the space of divergence-free fields
         print("===== Start the projection step ... =====")
         # Compute the right-hand side of the Poisson equation
-        Rf_1 = mf.predict(u_star_model, u_star_params, x_inner, y_inner)
-        Rf_2 = mf.predict(v_star_model, v_star_params, x_inner, y_inner)
-        Rf_1_valid = mf.predict(u_star_model, u_star_params, x_inner_valid, y_inner_valid)
-        Rf_2_valid = mf.predict(v_star_model, v_star_params, x_inner_valid, y_inner_valid)
-        Rf_1_bd = pm.exact_sol(x_bd, y_bd, step * Dt, Re, "u")
-        Rf_2_bd = pm.exact_sol(x_bd, y_bd, step * Dt, Re, "v")
-        Rf_1_bd_valid = pm.exact_sol(x_bd_valid, y_bd_valid, step * Dt, Re, "u")
-        Rf_2_bd_valid = pm.exact_sol(x_bd_valid, y_bd_valid, step * Dt, Re, "v")
+        Rf_1 = mf.predict(u_star_model, u_star_params, x_inner.to(device), y_inner.to(device))
+        Rf_2 = mf.predict(v_star_model, v_star_params, x_inner.to(device), y_inner.to(device))
+        Rf_1_valid = mf.predict(u_star_model, u_star_params, x_inner_valid.to(device), y_inner_valid.to(device))
+        Rf_2_valid = mf.predict(v_star_model, v_star_params, x_inner_valid.to(device), y_inner_valid.to(device))
+        Rf_1_bd = pm.exact_sol(x_bd, y_bd, step * Dt, Re, "u").to(device)
+        Rf_2_bd = pm.exact_sol(x_bd, y_bd, step * Dt, Re, "v").to(device)
+        Rf_1_bd_valid = pm.exact_sol(x_bd_valid, y_bd_valid, step * Dt, Re, "u").to(device)
+        Rf_2_bd_valid = pm.exact_sol(x_bd_valid, y_bd_valid, step * Dt, Re, "v").to(device)
 
         # Train the neural network
         while True:
-            phi_params, psi_params, savedloss, savedloss_valid = pm.projection_step(
+            phi_params, psi_params, loss_proj, loss_proj_valid = pm.projection_step(
                 phi_model, psi_model,
                 (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid),
                 (Rf_1, Rf_2, Rf_1_bd, Rf_2_bd, Rf_1_valid, Rf_2_valid, Rf_1_bd_valid, Rf_2_bd_valid),
                 device
             )
-            if savedloss_valid[-1] / savedloss[-1] > 5.0:
+            if loss_proj_valid[-1] / loss_proj[-1] > 5.0:
                 print("Re-training the projection model ...")
-            elif savedloss[-1] / savedloss_valid[-1] > 5.0:
+            elif loss_proj[-1] / loss_proj_valid[-1] > 5.0:
+                print("Re-training the projection model ...")
+            elif loss_proj[-1] > 1e10:
                 print("Re-training the projection model ...")
             else:
                 break
         
         # Plot the loss function
         plot_loss_figure(
-            savedloss,
-            savedloss_valid,
+            loss_proj,
+            loss_proj_valid,
             f"Loss function of projection, Time = {step * Dt}",
             f"proj\\proj_loss_{step}.png",
         )
@@ -265,8 +263,8 @@ def main():
         # Update the velocity field and pressure field
         print("===== Start the update step ... =====")
         new_value, new_value_valid = pm.update_step(
-            (u_star_model, v_star_model, psi_model, phi_model),
-            (u_star_params, v_star_params, psi_params, phi_params),
+            (u_star_model, v_star_model, phi_model, psi_model),
+            (u_star_params, v_star_params, phi_params, psi_params),
             (x_training, y_training, x_test, y_test),
             prev_value, prev_value_valid, device
         )
@@ -277,7 +275,7 @@ def main():
         torch.save(prev_value_valid, pwd + dir_name + f"data\\data_valid_{step}.pt")
         print("===== Finish the update step ... =====\n")
 
-        if step % 1 == 0:
+        if step % 10 == 0:
             # Plot the velocity field and pressure field
             exact_u = pm.exact_sol(x_valid, y_valid, step * Dt, Re, "u").detach().numpy()
             exact_v = pm.exact_sol(x_valid, y_valid, step * Dt, Re, "v").detach().numpy()
@@ -291,42 +289,42 @@ def main():
                 x_data=prev_value_valid["x_data"],
                 y_data=prev_value_valid["y_data"],
                 plot_val=prev_value_valid["u1"],
-                title="Predicted u",
+                title=f"Predicted u, Time = {step * Dt:.3f}",
                 file_name=f"u\\u_{step}.png",
             )
             plot_figure(
                 x_data=prev_value_valid["x_data"],
                 y_data=prev_value_valid["y_data"],
                 plot_val=prev_value_valid["v1"],
-                title="Predicted v",
+                title=f"Predicted v, Time = {step * Dt:.3f}",
                 file_name=f"v\\v_{step}.png",
             )
             plot_figure(
                 x_data=prev_value_valid["x_data"],
                 y_data=prev_value_valid["y_data"],
                 plot_val=prev_value_valid["p1"],
-                title="Predicted p",
+                title=f"Predicted p, Time = {step * Dt:.3f}",
                 file_name=f"p\\p_{step}.png",
             )
             plot_figure(
                 x_data=prev_value_valid["x_data"],
                 y_data=prev_value_valid["y_data"],
                 plot_val=error_u,
-                title="Error of u",
+                title=f"Error of u, Time = {step * Dt:.3f}",
                 file_name=f"u\\u_error_{step}.png",
             )
             plot_figure(
                 x_data=prev_value_valid["x_data"],
                 y_data=prev_value_valid["y_data"],
                 plot_val=error_v,
-                title="Error of v",
+                title=f"Error of v, Time = {step * Dt:.3f}",
                 file_name=f"v\\v_error_{step}.png",
             )
             plot_figure(
                 x_data=prev_value_valid["x_data"],
                 y_data=prev_value_valid["y_data"],
                 plot_val=error_p,
-                title="Error of p",
+                title=f"Error of p, Time = {step * Dt:.3f}",
                 file_name=f"p\\p_error_{step}.png",
             )
             print('===== Finish the plot ... =====\n')
@@ -342,7 +340,10 @@ if __name__ == "__main__":
 
     Re = pm.REYNOLDS_NUM
     Dt = pm.TIME_STEP
-    time_end = 10.0
+    time_end = 1.0
+
+    print(f"Reynolds number: {Re:.1f}")
+    print(f"Time step: {Dt:.3f}")
 
     pwd = "C:\\barry_doc\\Training_Data\\"
     dir_name = "TaylorGreenVortex_Streamfunction_1000_0.02\\"

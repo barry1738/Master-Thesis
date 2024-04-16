@@ -1,8 +1,11 @@
 from torch.func import grad, vmap
 from projection_module.utilities import exact_sol
+from projection_module.config import REYNOLDS_NUM, TIME_STEP
 
+Re = REYNOLDS_NUM
+Dt = TIME_STEP
 
-def initial_value(x_training, y_training, x_test, y_test, Dt, Re):
+def initial_value(x_training, y_training, x_test, y_test):
     prev_value = dict()
     prev_value["x_data"] = x_training.detach().numpy()
     prev_value["y_data"] = y_training.detach().numpy()

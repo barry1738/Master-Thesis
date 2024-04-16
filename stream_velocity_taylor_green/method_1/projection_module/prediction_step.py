@@ -12,7 +12,7 @@ def prediction_step(model, points, rhs_vec, device):
     def weights_init(model):
         """Initialize the weights of the neural network."""
         if isinstance(model, nn.Linear):
-            # nn.init.xavier_uniform_(model.weight.data, gain=5)
+            # nn.init.xavier_uniform_(model.weight.data, gain=10)
             nn.init.xavier_normal_(model.weight.data, gain=5)
 
     model.apply(weights_init)
@@ -60,7 +60,7 @@ def prediction_step(model, points, rhs_vec, device):
     
     # Start training
     Niter = 1000
-    tol = 1.0e-8
+    tol = 1.0e-9
     mu = 1.0e3
     alpha = 1.0
     beta = 1.0
@@ -126,7 +126,7 @@ def prediction_step(model, points, rhs_vec, device):
             if savedloss[iter] > savedloss[iter - 1]:
                 mu = min(2 * mu, 1e8)
             else:
-                mu = max(mu / 3, 1e-12)
+                mu = max(mu / 3, 1e-10)
 
         # Compute alpha_bar and beta_bar, then update alpha and beta
         if iter % 100 == 0:
