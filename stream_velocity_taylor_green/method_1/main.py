@@ -105,8 +105,8 @@ def main():
 
     # Define the training data
     mesh = pm.CreateSquareMesh()
-    x_inner, y_inner = mesh.inner_points(500)
-    x_bd, y_bd = mesh.boundary_points(20)
+    x_inner, y_inner = mesh.inner_points(1000)
+    x_bd, y_bd = mesh.boundary_points(30)
     x_valid, y_valid = torch.meshgrid(
         torch.linspace(0, 1, 200), torch.linspace(0, 1, 200), indexing="xy"
     )
@@ -340,13 +340,13 @@ if __name__ == "__main__":
 
     Re = pm.REYNOLDS_NUM
     Dt = pm.TIME_STEP
-    time_end = 1.0
+    time_end = 5.0
 
     print(f"Reynolds number: {Re:.1f}")
     print(f"Time step: {Dt:.3f}")
 
     pwd = "C:\\barry_doc\\Training_Data\\"
-    dir_name = "TaylorGreenVortex_Streamfunction_1000_0.02\\"
+    dir_name = "TaylorGreenVortex_Streamfunction_5s\\"
     if not os.path.exists(pwd + dir_name):
         print("Creating data directory...")
         os.makedirs(pwd + dir_name)
