@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 from torch.func import functional_call, vjp
 
 torch.set_default_dtype(torch.float64)
-device = "cuda" if torch.cuda.is_available() else "cpu"
+# device = "cuda" if torch.cuda.is_available() else "cpu"
 # device = "cpu"
-print("device = ", device)
+# print("device = ", device)
 
 
 class PinnModel(nn.Module):
@@ -61,22 +61,32 @@ v_star_model = PinnModel([2, 1])
 phi_model = PinnModel([2, 1])
 psi_model = PinnModel([2, 1])
 
-u_star_model_dir = "C:\\Users\\barry\\Desktop\\TaylorGreenVortex_Streamfunction_1000_0.025\\u_star_model"
-v_star_model_dir = "C:\\Users\\barry\\Desktop\\TaylorGreenVortex_Streamfunction_1000_0.025\\v_star_model"
-phi_model_dir = "C:\\Users\\barry\\Desktop\\TaylorGreenVortex_Streamfunction_1000_0.025\\phi_model"
-psi_model_dir = "C:\\Users\\barry\\Desktop\\TaylorGreenVortex_Streamfunction_1000_0.025\\psi_model"
-data_dir = "C:\\Users\\barry\\Desktop\\TaylorGreenVortex_Streamfunction_1000_0.025\\data"
+models_dir = "C:\\Users\\barry\\Desktop\\TaylorGreenVortex_Streamfunction_1000_0.02\\models\\"
+params_dir = "C:\\Users\\barry\\Desktop\\TaylorGreenVortex_Streamfunction_1000_0.02\\params\\"
+data_dir = "C:\\Users\\barry\\Desktop\\TaylorGreenVortex_Streamfunction_1000_0.02\\data\\"
 
-u_star_model = torch.load(u_star_model_dir + "\\u_star_40.pt", map_location=device)
-v_star_model = torch.load(v_star_model_dir + "\\v_star_40.pt", map_location=device)
-phi_model = torch.load(phi_model_dir + "\\phi_40.pt", map_location=device)
-psi_model = torch.load(psi_model_dir + "\\psi_40.pt", map_location=device)
-data = torch.load(data_dir + "\\initial_value_40.pt", map_location=device)
-data_valid = torch.load(data_dir + "\\initial_value_valid_40.pt", map_location=device)
+u_star_model = torch.load(models_dir + "u_star_model.pt", map_location=torch.device("cpu"))
+v_star_model = torch.load(models_dir + "v_star_model.pt", map_location=torch.device("cpu"))
+phi_model = torch.load(models_dir + "phi_model.pt", map_location=torch.device("cpu"))
+psi_model = torch.load(models_dir + "psi_model.pt", map_location=torch.device("cpu"))
+
+u_star_params = torch.load(params_dir + "u_star\\u_star_5.pt")
+v_star_params = torch.load(params_dir + "v_star\\v_star_5.pt")
+phi_params = torch.load(params_dir + "phi\\phi_5.pt")
+psi_params = torch.load(params_dir + "psi\\psi_5.pt")
+
+u_star_model.load_state_dict(u_star_params)
+v_star_model.load_state_dict(v_star_params)
+phi_model.load_state_dict(phi_params)
+psi_model.load_state_dict(psi_params)
+
 u_star_model.eval()
 v_star_model.eval()
 phi_model.eval()
 psi_model.eval()
+
+data = torch.load(data_dir + "\\data_5.pt")
+data_valid = torch.load(data_dir + "\\data_valid_5.pt")
 
 print(u_star_model)
 
@@ -94,11 +104,11 @@ ax[1].set_title("v")
 ax[2].set_title("p")
 plt.show()
 
-
-u_star = u_star_model(torch.tensor(data_x), torch.tensor(data_y)).detach().numpy()
-v_star = v_star_model(torch.tensor(data_x), torch.tensor(data_y)).detach().numpy()
-phi = phi_model(torch.tensor(data_x), torch.tensor(data_y)).detach().numpy()
-psi = psi_model(torch.tensor(data_x), torch.tensor(data_y)).detach().numpy()
+data_x_torch, data_y_torch = torch.tensor(data_x), torch.tensor(data_y)
+u_star = u_star_model(data_x_torch, data_y_torch).detach().numpy()
+v_star = v_star_model(data_x_torch, data_y_torch).detach().numpy()
+phi = phi_model(data_x_torch, data_y_torch).detach().numpy()
+psi = psi_model(data_x_torch, data_y_torch).detach().numpy()
 
 fig, ax = plt.subplots(2, 2, subplot_kw={"projection": "3d"})
 ax[0][0].scatter(data_x, data_y, u_star, c=u_star, cmap="coolwarm", s=1)
