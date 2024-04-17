@@ -54,7 +54,7 @@ def prediction_step(model, points, rhs_vec, device):
     
     # Start training
     Niter = 1000
-    tol = 1.0e-8
+    tol = 1.0e-9
     mu = 1.0e3
     alpha = 1.0
     beta = 1.0
