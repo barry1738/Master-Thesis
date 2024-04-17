@@ -101,16 +101,28 @@ def main():
     torch.save(p_model, pwd + dir_name + "models\\p_model.pt")
 
     # Initialize the weights of the neural network
-    u_star_params = u_star_model.state_dict()
-    v_star_params = v_star_model.state_dict()
-    phi_params = phi_model.state_dict()
-    psi_params = psi_model.state_dict()
-    u_params = u_model.state_dict()
-    v_params = v_model.state_dict()
-    p_params = p_model.state_dict()
-    u_params_old = u_params.copy()
-    v_params_old = v_params.copy()
-    p_params_old = p_params.copy()
+    # u_star_params = u_star_model.state_dict()
+    # v_star_params = v_star_model.state_dict()
+    # phi_params = phi_model.state_dict()
+    # psi_params = psi_model.state_dict()
+    # u_params = u_model.state_dict()
+    # v_params = v_model.state_dict()
+    # p_params = p_model.state_dict()
+    # u_params_old = u_params.copy()
+    # v_params_old = v_params.copy()
+    # p_params_old = p_params.copy()
+
+    # Load the parameters
+    u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_240.pt")
+    v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_240.pt")
+    phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_240.pt")
+    psi_params = torch.load(pwd + dir_name + "params\\psi_params\\psi_240.pt")
+    u_params = torch.load(pwd + dir_name + "params\\u_params\\u_240.pt")
+    v_params = torch.load(pwd + dir_name + "params\\v_params\\v_240.pt")
+    p_params = torch.load(pwd + dir_name + "params\\p_params\\p_240.pt")
+    u_params_old = torch.load(pwd + dir_name + "params\\u_params\\u_239.pt")
+    v_params_old = torch.load(pwd + dir_name + "params\\v_params\\v_239.pt")
+    p_params_old = torch.load(pwd + dir_name + "params\\p_params\\p_239.pt")
 
     # Print the total number of parameters
     total_params_u_star = u_star_model.num_total_params()
@@ -125,7 +137,7 @@ def main():
     # # Define the training data
     mesh = pm.CreateSquareMesh()
     x_inner, y_inner = mesh.inner_points(1000)
-    x_bd, y_bd = mesh.boundary_points(20)
+    x_bd, y_bd = mesh.boundary_points(30)
     x_inner_valid, y_inner_valid = mesh.inner_points(10000)
     x_bd_valid, y_bd_valid = mesh.boundary_points(100)
 
@@ -148,7 +160,8 @@ def main():
 
     points = (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid)
 
-    for step in range(2, int(time_end / Dt) + 1):
+    # for step in range(2, int(time_end / Dt) + 1):
+    for step in range(241, int(time_end / Dt) + 1):
         print(f"Step {step}, time = {Dt * step:.3f} ...")
         print("=====================================")
 
@@ -377,7 +390,7 @@ def main():
             error_u = np.abs(predict_u - exact_u)
             error_v = np.abs(predict_v - exact_v)
             error_p = np.abs(predict_p - exact_p)
-            print('===== Final compute the error ... =====\n')
+            print('===== Finish compute the error ... =====\n')
 
             plot_figure(
                 x_data=x_plot.cpu().detach().numpy(),
