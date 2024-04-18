@@ -99,6 +99,6 @@ def update_step(model, points, rhs_vec, device):
             if savedloss[iter] > savedloss[iter - 1]:
                 mu = min(2 * mu, 1e8)
             else:
-                mu = max(mu / 3, 1e-10)
+                mu = max(mu / 3, 1e-11)
 
     return params, savedloss, savedloss_valid
