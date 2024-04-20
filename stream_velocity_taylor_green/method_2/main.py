@@ -113,16 +113,16 @@ def main():
     # p_params_old = p_params.copy()
 
     # Load the parameters
-    u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_220.pt")
-    v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_220.pt")
-    phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_220.pt")
-    psi_params = torch.load(pwd + dir_name + "params\\psi_params\\psi_220.pt")
-    u_params = torch.load(pwd + dir_name + "params\\u_params\\u_220.pt")
-    v_params = torch.load(pwd + dir_name + "params\\v_params\\v_220.pt")
-    p_params = torch.load(pwd + dir_name + "params\\p_params\\p_220.pt")
-    u_params_old = torch.load(pwd + dir_name + "params\\u_params\\u_219.pt")
-    v_params_old = torch.load(pwd + dir_name + "params\\v_params\\v_219.pt")
-    p_params_old = torch.load(pwd + dir_name + "params\\p_params\\p_219.pt")
+    u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_230.pt")
+    v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_230.pt")
+    phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_230.pt")
+    psi_params = torch.load(pwd + dir_name + "params\\psi_params\\psi_230.pt")
+    u_params = torch.load(pwd + dir_name + "params\\u_params\\u_230.pt")
+    v_params = torch.load(pwd + dir_name + "params\\v_params\\v_230.pt")
+    p_params = torch.load(pwd + dir_name + "params\\p_params\\p_230.pt")
+    u_params_old = torch.load(pwd + dir_name + "params\\u_params\\u_229.pt")
+    v_params_old = torch.load(pwd + dir_name + "params\\v_params\\v_229.pt")
+    p_params_old = torch.load(pwd + dir_name + "params\\p_params\\p_229.pt")
 
     # Print the total number of parameters
     total_params_u_star = u_star_model.num_total_params()
@@ -135,12 +135,12 @@ def main():
     print(f"Total number of psi parameters: {total_params_psi}")
 
     # # Define the training data
-    # mesh = pm.CreateSquareMesh()
-    mesh = pm.CreateCircleMesh()
-    x_inner, y_inner = mesh.inner_points(1500)
-    x_bd, y_bd = mesh.boundary_points(500)
+    mesh = pm.CreateSquareMesh()
+    # mesh = pm.CreateCircleMesh()
+    x_inner, y_inner = mesh.inner_points(1024)
+    x_bd, y_bd = mesh.boundary_points(32)
     x_inner_valid, y_inner_valid = mesh.inner_points(10000)
-    x_bd_valid, y_bd_valid = mesh.boundary_points(1000)
+    x_bd_valid, y_bd_valid = mesh.boundary_points(100)
 
     # Plot the training data
     fig, ax = plt.subplots(layout="constrained")
@@ -161,7 +161,7 @@ def main():
 
     points = (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid)
 
-    for step in range(221, int(time_end / Dt) + 1):
+    for step in range(231, int(time_end / Dt) + 1):
     # for step in range(2, int(time_end / Dt) + 1):
         print(f"Step {step}, time = {Dt * step:.3f} ...")
         print("=====================================")
@@ -376,14 +376,14 @@ def main():
         #     print("They are different ...")
 
         if step % 10 == 0:
-            # x_plot, y_plot = torch.meshgrid(
-            #     torch.linspace(0, 1, 200), torch.linspace(0, 1, 200), indexing="xy"
-            # )
-            # x_plot, y_plot = x_plot.reshape(-1, 1), y_plot.reshape(-1, 1)
-            x_plot_inner, y_plot_inner = mesh.inner_points(50000)
-            x_plot_bd, y_plot_bd = mesh.boundary_points(5000)
-            x_plot = torch.vstack((x_plot_inner, x_plot_bd))
-            y_plot = torch.vstack((y_plot_inner, y_plot_bd))
+            x_plot, y_plot = torch.meshgrid(
+                torch.linspace(0, 1, 200), torch.linspace(0, 1, 200), indexing="xy"
+            )
+            x_plot, y_plot = x_plot.reshape(-1, 1), y_plot.reshape(-1, 1)
+            # x_plot_inner, y_plot_inner = mesh.inner_points(50000)
+            # x_plot_bd, y_plot_bd = mesh.boundary_points(5000)
+            # x_plot = torch.vstack((x_plot_inner, x_plot_bd))
+            # y_plot = torch.vstack((y_plot_inner, y_plot_bd))
             x_plot, y_plot = x_plot.to(device), y_plot.to(device)
             # Plot the velocity field and pressure field
             exact_u = pm.exact_sol(x_plot, y_plot, step * Dt, Re, "u").cpu().detach().numpy()
@@ -458,7 +458,7 @@ if __name__ == "__main__":
     print(f'Re = {Re}, Dt = {Dt}, time_end = {time_end} ...')
 
     pwd = "C:\\barry_doc\\Training_Data\\"
-    dir_name = "TaylorGreenVortex_Streamfunction_circle_5s\\"
+    dir_name = "TaylorGreenVortex_Streamfunction_square_5s\\"
     if not os.path.exists(pwd + dir_name):
         print("Creating data directory...")
         os.makedirs(pwd + dir_name)
