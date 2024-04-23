@@ -110,34 +110,53 @@ def exact_sol(x, z, a, b, c, d):
 
 
 def main():
+    TYPE = "DCSNN"
+    # TYPE = "OneHot"
+    # TYPE = "EntityEmbedding"
+
     # Define the model
-    # model = DCSNNModel(in_dim=2, hidden_dim=[40], out_dim=1).to(device)
-
-    # model = OneHotModel(
-    #     in_dim=1, hidden_dim=[40], out_dim=1, part_dim=FUNC_NUM
-    # ).to(device)
-
-    model = EntityEmbeddingModel(
-        in_dim=1, hidden_dim=[40], out_dim=1, part_in_dim=FUNC_NUM, part_out_dim=1
-    ).to(device)
+    if TYPE == "DCSNN":
+        model = DCSNNModel(in_dim=2, hidden_dim=[20, 20], out_dim=1).to(device)
+    elif TYPE == "OneHot":
+        model = OneHotModel(
+            in_dim=1, hidden_dim=[20, 20], out_dim=1, part_dim=FUNC_NUM
+        ).to(device)
+    elif TYPE == "EntityEmbedding":
+        model = EntityEmbeddingModel(
+            in_dim=1,
+            hidden_dim=[20, 20],
+            out_dim=1,
+            part_in_dim=FUNC_NUM,
+            part_out_dim=1,
+        ).to(device)
 
     # get the training parameters and total number of parameters
     print(f"Number of parameters = {nn.utils.parameters_to_vector(model.state_dict().values()).numel()}")
 
     # Create the training data and validation data
-    x = qmc.LatinHypercube(d=1).random(n=200 - 2)
-    x = np.vstack((0.0, x, 1.0))
+    x = np.vstack((0.0, qmc.LatinHypercube(d=1).random(n=200 - 2), 1.0))
     x_valid = qmc.LatinHypercube(d=1).random(n=1000)
+    x_plot = np.linspace(0, 1.0, 10000).reshape(-1, 1)
 
-    # z = np.argwhere(sign(x) > 0)[:, 1] + 1
-    # z_valid = np.argwhere(sign(x_valid) > 0)[:, 1] + 1
-    # z = sign(x)
-    # z_valid = sign(x_valid)
-    z = sign(x)
-    z_valid = sign(x_valid)
+    z_matrix = sign(x)
+    z_matrix_valid = sign(x_valid)
+    z_matrix_plot = sign(x_plot)
 
-    print(f"x = {x.shape}")
-    print(f"z = {z.shape}")
+    if TYPE == "DCSNN":
+        z = (np.argwhere(z_matrix > 0)[:, 1] + 1).reshape(-1, 1)
+        z_valid = (np.argwhere(z_matrix_valid > 0)[:, 1] + 1).reshape(-1, 1)
+        z_plot = (np.argwhere(z_matrix_plot > 0)[:, 1] + 1).reshape(-1, 1)
+    elif TYPE == "OneHot":
+        z = z_matrix.copy()
+        z_valid = z_matrix_valid.copy()
+        z_plot = z_matrix_plot.copy()
+    elif TYPE == "EntityEmbedding":
+        z = z_matrix.copy()
+        z_valid = z_matrix_valid.copy()
+        z_plot = z_matrix_plot.copy()
+
+    # print(f"x = {x.shape}")
+    # print(f"z = {z.shape}")
 
     # Create the Fourier series coefficients
     rng = np.random.default_rng(10)
@@ -147,25 +166,35 @@ def main():
     d = rng.normal(loc=0.0, scale=5.0, size=(100, FUNC_NUM))
 
     # Define the right-hand side vector
-    rhs_f = exact_sol(x, z, a, b, c, d)
-    rhs_f_valid = exact_sol(x_valid, z_valid, a, b, c, d)
+    rhs_f = exact_sol(x, z_matrix, a, b, c, d)
+    rhs_f_valid = exact_sol(x_valid, z_matrix_valid, a, b, c, d)
 
     # Plot the exact solution
-    fig, ax = plt.subplots()
-    ax.scatter(x_valid, rhs_f_valid, s=3, c="b")
-    ax.scatter(x, rhs_f, s=3, c="r")
-    plt.show()
+    # fig, ax = plt.subplots()
+    # ax.scatter(x_valid, rhs_f_valid, s=3, c="b")
+    # ax.scatter(x, rhs_f, s=3, c="r")
+    # plt.show()
 
     # Start training
-    params, loss, loss_valid = networks_training(
-        model=model, points_data=(x, z, x_valid, z_valid), 
-        rhs_data=(rhs_f, rhs_f_valid), epochs=1000,
-        tol=1.0e-12, device=device
-    )
-    model.load_state_dict(params)
+    while True:
+        params, loss, loss_valid = networks_training(
+            model=model, points_data=(x, z, x_valid, z_valid), 
+            rhs_data=(rhs_f, rhs_f_valid), epochs=1000,
+            tol=1.0e-12, device=device
+        )
+        model.load_state_dict(params)
 
-    # print(f'embed weight = {model.ln_embed.weight}')
-    # print(f"embed weight diff = {torch.diff(model.ln_embed.weight).cpu().detach().numpy()}")
+        if loss[-1] < 1.0e-6:
+            # Compute infinity and L2 norm of the error
+            # inf_norm = np.max(np.abs(loss))
+            # l2_norm = np.sqrt(np.sum(np.square(loss)) / len(loss))
+            break
+
+    if TYPE == "EntityEmbedding":
+        print(f'embed weight = {model.ln_embed.weight}')
+        print(f"embed weight diff = {torch.diff(model.ln_embed.weight).cpu().detach().numpy()}")
+
+    # print(f"inf_norm = {inf_norm:.2e}, l2_norm = {l2_norm:.2e}")
 
     # Plot the loss function
     fig, ax = plt.subplots()
@@ -178,11 +207,10 @@ def main():
     plt.show()
 
     # Compute the exact solution
-    x_plot = np.linspace(0, 1.0, 10000).reshape(-1, 1)
-    z_plot = sign(x_plot)
+    
     x_plot_torch = torch.from_numpy(x_plot).to(device)
     z_plot_torch = torch.from_numpy(z_plot).to(device)
-    U_exact = exact_sol(x_plot, z_plot, a, b, c, d)
+    U_exact = exact_sol(x_plot, z_matrix_plot, a, b, c, d)
     U_pred = functional_call(model, params, (x_plot_torch, z_plot_torch)).cpu().detach().numpy()
     Error = np.abs(U_exact - U_pred)
 

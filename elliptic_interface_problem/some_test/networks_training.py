@@ -91,7 +91,7 @@ def networks_training(model, points_data, rhs_data, epochs, tol, device):
             print("Training successful.")
             print(f"step = {step}, loss = {loss.item():.2e}, mu = {mu:.1e}")
             break
-        elif step % 3 == 0:
+        elif step % 5 == 0:
             if savedloss[step] > savedloss[step - 1]:
                 mu = min(mu * 2.0, 1.0e8)
             else:
