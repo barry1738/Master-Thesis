@@ -251,13 +251,13 @@ if __name__ == "__main__":
 
     FUNC_NUM = 50
 
-    TYPE = "DCSNN"
+    # TYPE = "DCSNN"
     # TYPE = "OneHot"
-    # TYPE = "EntityEmbedding"
+    TYPE = "EntityEmbedding"
 
     Xmin = 0.0
-    # Xmax = 1.0
-    Xmax = 2 * np.pi
+    Xmax = 1.0
+    # Xmax = 2 * np.pi
 
     dir = "C:\\Users\\barry\\Desktop\\" + TYPE
     if not os.path.exists(dir):
