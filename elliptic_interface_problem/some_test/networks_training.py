@@ -13,7 +13,7 @@ def networks_training(model, points_data, rhs_data, epochs, tol, device):
         """Initialize the weights of the neural network."""
         if isinstance(model, nn.Linear):
             # nn.init.xavier_uniform_(model.weight.data, gain=1)
-            nn.init.xavier_normal_(model.weight.data, gain=1)
+            nn.init.xavier_normal_(model.weight.data, gain=2)
 
     def qr_decomposition(J_mat, diff, mu):
         """ Solve the linear system using QR decomposition """
@@ -90,11 +90,11 @@ def networks_training(model, points_data, rhs_data, epochs, tol, device):
             print("Training successful.")
             print(f"step = {step}, loss = {loss.item():.2e}, mu = {mu:.1e}")
             break
-        elif step % 5 == 0:
+        elif step % 3 == 0:
             if savedloss[step] > savedloss[step - 1]:
                 mu = min(mu * 2.0, 1.0e8)
             else:
-                mu = max(mu / 1.2, 1.0e-12)
+                mu = max(mu / 1.5, 1.0e-12)
 
     else:
         print("Reach the maximum number of iterations")

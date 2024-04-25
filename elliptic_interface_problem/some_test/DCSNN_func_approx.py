@@ -125,7 +125,7 @@ def loss_figure(loss, loss_valid, step):
 
 def result_figure(x, U_pred, Error, step):
     """Plot the exact solution and predicted solution."""
-    fig, axs = plt.subplots(1, 2)
+    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
     axs[0].scatter(x, U_pred, c="r", marker=".", s=3)
     axs[1].plot(x, Error, "k-")
     axs[0].set_title("Predicted solution")
@@ -139,25 +139,25 @@ def main():
 
     # Define the model
     if TYPE == "DCSNN":
-        model = DCSNNModel(in_dim=2, hidden_dim=[20, 20], out_dim=1).to(device)
+        model = DCSNNModel(in_dim=2, hidden_dim=[50], out_dim=1).to(device)
     elif TYPE == "OneHot":
         model = OneHotModel(
-            in_dim=1, hidden_dim=[20, 20], out_dim=1, part_dim=FUNC_NUM
+            in_dim=1, hidden_dim=[50], out_dim=1, part_dim=FUNC_NUM
         ).to(device)
     elif TYPE == "EntityEmbedding":
         model = EntityEmbeddingModel(
             in_dim=1,
-            hidden_dim=[20, 20],
+            hidden_dim=[50],
             out_dim=1,
             part_in_dim=FUNC_NUM,
-            part_out_dim=1,
+            part_out_dim=10,
         ).to(device)
 
     # get the training parameters and total number of parameters
     print(f"Number of parameters = {nn.utils.parameters_to_vector(model.state_dict().values()).numel()}")
 
     # Create the training data and validation data
-    x = np.vstack((Xmin, Xmax * qmc.LatinHypercube(d=1).random(n=1000 - 2), Xmax))
+    x = np.vstack((Xmin, Xmax * qmc.LatinHypercube(d=1).random(n=200 - 2), Xmax))
     x_valid = Xmax * qmc.LatinHypercube(d=1).random(n=10000)
     x_plot = np.linspace(Xmin, Xmax, 10000).reshape(-1, 1)
 
@@ -205,7 +205,7 @@ def main():
     Success_training = 0
 
     # Start training
-    while Success_training < 1:
+    while Success_training < 5:
         print(f"step = {Success_training}")
         params, loss, loss_valid = networks_training(
             model=model, points_data=(x, z, x_valid, z_valid), 
@@ -214,7 +214,7 @@ def main():
         )
         # model.load_state_dict(params)
 
-        if loss[-1] < 1.0e-6:
+        if loss[-1] < 1.0e0:
             # Compute infinity and L2 norm of the error
             U_pred = functional_call(model, params, (x_plot_torch, z_plot_torch)).cpu().detach().numpy()
             Error = np.abs(U_exact - U_pred)
@@ -249,7 +249,7 @@ if __name__ == "__main__":
 
     plt.rcParams.update({"font.size": 12})
 
-    FUNC_NUM = 50
+    FUNC_NUM = 10
 
     # TYPE = "DCSNN"
     # TYPE = "OneHot"
