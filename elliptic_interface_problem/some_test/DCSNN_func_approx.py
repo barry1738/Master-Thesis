@@ -166,9 +166,13 @@ def main():
     z_matrix_plot = sign(x_plot)
 
     if TYPE == "DCSNN":
-        z = (np.argwhere(z_matrix > 0)[:, 1] + 1).reshape(-1, 1)
-        z_valid = (np.argwhere(z_matrix_valid > 0)[:, 1] + 1).reshape(-1, 1)
-        z_plot = (np.argwhere(z_matrix_plot > 0)[:, 1] + 1).reshape(-1, 1)
+        z = (np.argwhere(z_matrix > 0)[:, 1] + 1).reshape(-1, 1) / 10
+        z_valid = (np.argwhere(z_matrix_valid > 0)[:, 1] + 1).reshape(-1, 1) / 10
+        z_plot = (np.argwhere(z_matrix_plot > 0)[:, 1] + 1).reshape(-1, 1) / 10
+
+        z = z - np.max(z) / 2
+        z_valid = z_valid - np.max(z_valid) / 2
+        z_plot = z_plot - np.max(z_plot) / 2
     elif TYPE == "OneHot":
         z = z_matrix.copy()
         z_valid = z_matrix_valid.copy()
@@ -177,6 +181,8 @@ def main():
         z = z_matrix.copy()
         z_valid = z_matrix_valid.copy()
         z_plot = z_matrix_plot.copy()
+    print(f"max z = {np.max(z)}")
+    print(f"min z = {np.min(z)}")
 
     # Create the Fourier series coefficients
     rng = np.random.default_rng(10)
@@ -251,9 +257,9 @@ if __name__ == "__main__":
 
     FUNC_NUM = 10
 
-    # TYPE = "DCSNN"
+    TYPE = "DCSNN"
     # TYPE = "OneHot"
-    TYPE = "EntityEmbedding"
+    # TYPE = "EntityEmbedding"
 
     Xmin = 0.0
     Xmax = 1.0
