@@ -13,7 +13,7 @@ def networks_training(model, points_data, rhs_data, epochs, tol, device):
         """Initialize the weights of the neural network."""
         if isinstance(model, nn.Linear):
             # nn.init.xavier_uniform_(model.weight.data, gain=1)
-            nn.init.xavier_normal_(model.weight.data, gain=2)
+            nn.init.xavier_normal_(model.weight.data, gain=3)
 
     def qr_decomposition(J_mat, diff, mu):
         """ Solve the linear system using QR decomposition """
@@ -69,7 +69,7 @@ def networks_training(model, points_data, rhs_data, epochs, tol, device):
         l_vec_valid /= torch.sqrt(torch.tensor(x_valid.size(0)))
 
         # Solve the linear system
-        # p = qr_decomposition(J_mat, L_vec, mu)
+        # p = qr_decomposition(jac, l_vec, mu)
         p = cholesky(jac, l_vec, mu)
         params_flatten = nn.utils.parameters_to_vector(params.values())
         params_flatten += p
@@ -82,7 +82,7 @@ def networks_training(model, points_data, rhs_data, epochs, tol, device):
         savedloss.append(loss.item())
         saveloss_vaild.append(loss_valid.item())
 
-        if step % 50 == 0:
+        if step % 100 == 0:
             print(f"step = {step}, loss = {loss.item():.2e}, mu = {mu:.1e}")
 
         # Update mu or Stop the iteration
@@ -90,7 +90,11 @@ def networks_training(model, points_data, rhs_data, epochs, tol, device):
             print("Training successful.")
             print(f"step = {step}, loss = {loss.item():.2e}, mu = {mu:.1e}")
             break
-        elif step % 5 == 0:
+        elif savedloss[step] == savedloss[step - 1] and step > 0:
+            print("Training failed.")
+            print(f"step = {step}, loss = {loss.item():.2e}, mu = {mu:.1e}")
+            break
+        elif step % 3 == 0:
             if savedloss[step] > savedloss[step - 1]:
                 mu = min(mu * 2.0, 1.0e8)
             else:

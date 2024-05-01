@@ -23,7 +23,7 @@ class DCSNNModel(nn.Module):
             self.hidden.append(nn.Linear(hidden_dim[i], hidden_dim[i + 1]))
 
         # output layer
-        self.ln_out = nn.Linear(hidden_dim[-1], out_dim, bias=True)
+        self.ln_out = nn.Linear(hidden_dim[-1], out_dim, bias=False)
 
     def forward(self, x, z):
         input = torch.hstack((x, z))
@@ -49,7 +49,7 @@ class OneHotModel(nn.Module):
             self.hidden.append(nn.Linear(hidden_dim[i], hidden_dim[i + 1]))
 
         # output layer
-        self.ln_out = nn.Linear(hidden_dim[-1], out_dim, bias=True)
+        self.ln_out = nn.Linear(hidden_dim[-1], out_dim, bias=False)
 
     def forward(self, x, z):
         input = torch.hstack((x, z))
@@ -75,7 +75,7 @@ class EntityEmbeddingModel(nn.Module):
             self.hidden.append(nn.Linear(hidden_dim[i], hidden_dim[i + 1]))
 
         # output layer
-        self.ln_out = nn.Linear(hidden_dim[-1], out_dim, bias=True)
+        self.ln_out = nn.Linear(hidden_dim[-1], out_dim, bias=False)
 
         # embed layer
         self.ln_embed = nn.Linear(part_in_dim, part_out_dim, bias=False)
@@ -130,6 +130,7 @@ def result_figure(x, U_pred, Error, step):
     axs[1].plot(x, Error, "k-")
     axs[0].set_title("Predicted solution")
     axs[1].set_title("Error")
+    axs[1].ticklabel_format(axis="y", style="sci", scilimits=(0,0), useOffset=False)
     # plt.show()
     plt.savefig(dir + f"\\result_{step}.png", dpi=300)
 
@@ -150,14 +151,14 @@ def main():
             hidden_dim=[50],
             out_dim=1,
             part_in_dim=FUNC_NUM,
-            part_out_dim=10,
+            part_out_dim=1,
         ).to(device)
 
     # get the training parameters and total number of parameters
     print(f"Number of parameters = {nn.utils.parameters_to_vector(model.state_dict().values()).numel()}")
 
     # Create the training data and validation data
-    x = np.vstack((Xmin, Xmax * qmc.LatinHypercube(d=1).random(n=200 - 2), Xmax))
+    x = np.vstack((Xmin, Xmax * qmc.LatinHypercube(d=1).random(n=5000 - 2), Xmax))
     x_valid = Xmax * qmc.LatinHypercube(d=1).random(n=10000)
     x_plot = np.linspace(Xmin, Xmax, 10000).reshape(-1, 1)
 
@@ -185,11 +186,11 @@ def main():
     print(f"min z = {np.min(z)}")
 
     # Create the Fourier series coefficients
-    rng = np.random.default_rng(10)
+    rng = np.random.default_rng(100)
     a = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
-    b = rng.normal(loc=0.0, scale=5.0, size=(100, FUNC_NUM))
+    b = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
     c = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
-    d = rng.normal(loc=0.0, scale=5.0, size=(100, FUNC_NUM))
+    d = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
 
     # Define the right-hand side vector
     rhs_f = exact_sol(x, z_matrix, a, b, c, d)
@@ -201,26 +202,26 @@ def main():
     U_exact = exact_sol(x_plot, z_matrix_plot, a, b, c, d)
 
     # Plot the exact solution
-    # fig, ax = plt.subplots()
-    # ax.scatter(x_valid, rhs_f_valid, s=3, c="b")
-    # ax.scatter(x, rhs_f, s=3, c="r")
-    # plt.show()
+    fig, ax = plt.subplots()
+    ax.scatter(x_valid, rhs_f_valid, s=3, c="b")
+    ax.scatter(x, rhs_f, s=3, c="r")
+    plt.show()
 
     Inf_norm = []
     L2_norm = []
     Success_training = 0
 
     # Start training
-    while Success_training < 5:
-        print(f"step = {Success_training}")
+    while Success_training < 10:
+        print(f"step = {Success_training + 1}")
         params, loss, loss_valid = networks_training(
             model=model, points_data=(x, z, x_valid, z_valid), 
-            rhs_data=(rhs_f, rhs_f_valid), epochs=5000,
-            tol=1.0e-12, device=device
+            rhs_data=(rhs_f, rhs_f_valid), epochs=1000,
+            tol=1.0e-20, device=device
         )
-        # model.load_state_dict(params)
 
-        if loss[-1] < 1.0e0:
+        if loss[-1] < 1.0e0 and loss_valid[-1] / loss[-1] < 10.0:
+            print("Training successful.\n")
             # Compute infinity and L2 norm of the error
             U_pred = functional_call(model, params, (x_plot_torch, z_plot_torch)).cpu().detach().numpy()
             Error = np.abs(U_exact - U_pred)
@@ -233,6 +234,8 @@ def main():
             loss_figure(loss, loss_valid, Success_training)
             # Plot the result
             result_figure(x_plot, U_pred, Error, Success_training)
+        else:
+            print("Training failed.\n")
 
 
     # if TYPE == "EntityEmbedding":
@@ -242,9 +245,9 @@ def main():
     # print the average infinity and L2 norm of the error
     avg_inf_norm = np.mean(Inf_norm)
     avg_l2_norm = np.mean(L2_norm)
-    print("**************************************************")
+    print("*********************************************")
     print(f"inf_norm = {avg_inf_norm:.2e}, l2_norm = {avg_l2_norm:.2e}")
-    print("**************************************************")
+    print("*********************************************")
 
 
 if __name__ == "__main__":
@@ -255,15 +258,15 @@ if __name__ == "__main__":
 
     plt.rcParams.update({"font.size": 12})
 
-    FUNC_NUM = 10
+    FUNC_NUM = 50
 
-    TYPE = "DCSNN"
+    # TYPE = "DCSNN"
     # TYPE = "OneHot"
-    # TYPE = "EntityEmbedding"
+    TYPE = "EntityEmbedding"
 
     Xmin = 0.0
-    Xmax = 1.0
-    # Xmax = 2 * np.pi
+    # Xmax = 1.0
+    Xmax = 2 * np.pi
 
     dir = "C:\\Users\\barry\\Desktop\\" + TYPE
     if not os.path.exists(dir):
