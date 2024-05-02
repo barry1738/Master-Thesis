@@ -140,25 +140,25 @@ def main():
 
     # Define the model
     if TYPE == "DCSNN":
-        model = DCSNNModel(in_dim=2, hidden_dim=[50], out_dim=1).to(device)
+        model = DCSNNModel(in_dim=2, hidden_dim=[20, 20], out_dim=1).to(device)
     elif TYPE == "OneHot":
         model = OneHotModel(
-            in_dim=1, hidden_dim=[50], out_dim=1, part_dim=FUNC_NUM
+            in_dim=1, hidden_dim=[20, 20], out_dim=1, part_dim=FUNC_NUM
         ).to(device)
     elif TYPE == "EntityEmbedding":
         model = EntityEmbeddingModel(
             in_dim=1,
-            hidden_dim=[50],
+            hidden_dim=[20, 20],
             out_dim=1,
             part_in_dim=FUNC_NUM,
-            part_out_dim=1,
+            part_out_dim=2,
         ).to(device)
 
     # get the training parameters and total number of parameters
     print(f"Number of parameters = {nn.utils.parameters_to_vector(model.state_dict().values()).numel()}")
 
     # Create the training data and validation data
-    x = np.vstack((Xmin, Xmax * qmc.LatinHypercube(d=1).random(n=5000 - 2), Xmax))
+    x = np.vstack((Xmin, Xmax * qmc.LatinHypercube(d=1).random(n=2000 - 2), Xmax))
     x_valid = Xmax * qmc.LatinHypercube(d=1).random(n=10000)
     x_plot = np.linspace(Xmin, Xmax, 10000).reshape(-1, 1)
 
@@ -167,13 +167,13 @@ def main():
     z_matrix_plot = sign(x_plot)
 
     if TYPE == "DCSNN":
-        z = (np.argwhere(z_matrix > 0)[:, 1] + 1).reshape(-1, 1) / 10
-        z_valid = (np.argwhere(z_matrix_valid > 0)[:, 1] + 1).reshape(-1, 1) / 10
-        z_plot = (np.argwhere(z_matrix_plot > 0)[:, 1] + 1).reshape(-1, 1) / 10
+        z = (np.argwhere(z_matrix > 0)[:, 1] + 1).reshape(-1, 1) / 1
+        z_valid = (np.argwhere(z_matrix_valid > 0)[:, 1] + 1).reshape(-1, 1) / 1
+        z_plot = (np.argwhere(z_matrix_plot > 0)[:, 1] + 1).reshape(-1, 1) / 1
 
-        z = z - np.max(z) / 2
-        z_valid = z_valid - np.max(z_valid) / 2
-        z_plot = z_plot - np.max(z_plot) / 2
+        # z = z - np.max(z) / 2
+        # z_valid = z_valid - np.max(z_valid) / 2
+        # z_plot = z_plot - np.max(z_plot) / 2
     elif TYPE == "OneHot":
         z = z_matrix.copy()
         z_valid = z_matrix_valid.copy()
@@ -202,10 +202,10 @@ def main():
     U_exact = exact_sol(x_plot, z_matrix_plot, a, b, c, d)
 
     # Plot the exact solution
-    fig, ax = plt.subplots()
-    ax.scatter(x_valid, rhs_f_valid, s=3, c="b")
-    ax.scatter(x, rhs_f, s=3, c="r")
-    plt.show()
+    # fig, ax = plt.subplots()
+    # ax.scatter(x_valid, rhs_f_valid, s=3, c="b")
+    # ax.scatter(x, rhs_f, s=3, c="r")
+    # plt.show()
 
     Inf_norm = []
     L2_norm = []
@@ -220,7 +220,7 @@ def main():
             tol=1.0e-20, device=device
         )
 
-        if loss[-1] < 1.0e0 and loss_valid[-1] / loss[-1] < 10.0:
+        if loss[-1] < 1.0e2 and loss_valid[-1] / loss[-1] < 10.0:
             print("Training successful.\n")
             # Compute infinity and L2 norm of the error
             U_pred = functional_call(model, params, (x_plot_torch, z_plot_torch)).cpu().detach().numpy()
@@ -258,11 +258,11 @@ if __name__ == "__main__":
 
     plt.rcParams.update({"font.size": 12})
 
-    FUNC_NUM = 50
+    FUNC_NUM = 100
 
-    # TYPE = "DCSNN"
+    TYPE = "DCSNN"
     # TYPE = "OneHot"
-    TYPE = "EntityEmbedding"
+    # TYPE = "EntityEmbedding"
 
     Xmin = 0.0
     # Xmax = 1.0

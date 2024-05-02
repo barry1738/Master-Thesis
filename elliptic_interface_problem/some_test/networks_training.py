@@ -13,7 +13,7 @@ def networks_training(model, points_data, rhs_data, epochs, tol, device):
         """Initialize the weights of the neural network."""
         if isinstance(model, nn.Linear):
             # nn.init.xavier_uniform_(model.weight.data, gain=1)
-            nn.init.xavier_normal_(model.weight.data, gain=3)
+            nn.init.xavier_normal_(model.weight.data, gain=2)
 
     def qr_decomposition(J_mat, diff, mu):
         """ Solve the linear system using QR decomposition """
