@@ -140,15 +140,15 @@ def main():
 
     # Define the model
     if TYPE == "DCSNN":
-        model = DCSNNModel(in_dim=2, hidden_dim=[20, 20], out_dim=1).to(device)
+        model = DCSNNModel(in_dim=2, hidden_dim=[50], out_dim=1).to(device)
     elif TYPE == "OneHot":
         model = OneHotModel(
-            in_dim=1, hidden_dim=[20, 20], out_dim=1, part_dim=FUNC_NUM
+            in_dim=1, hidden_dim=[50], out_dim=1, part_dim=FUNC_NUM
         ).to(device)
     elif TYPE == "EntityEmbedding":
         model = EntityEmbeddingModel(
             in_dim=1,
-            hidden_dim=[20, 20],
+            hidden_dim=[50],
             out_dim=1,
             part_in_dim=FUNC_NUM,
             part_out_dim=2,
@@ -220,7 +220,7 @@ def main():
             tol=1.0e-20, device=device
         )
 
-        if loss[-1] < 1.0e2 and loss_valid[-1] / loss[-1] < 10.0:
+        if loss[-1] < 1.0e0 and loss_valid[-1] / loss[-1] < 10.0:
             print("Training successful.\n")
             # Compute infinity and L2 norm of the error
             U_pred = functional_call(model, params, (x_plot_torch, z_plot_torch)).cpu().detach().numpy()
@@ -260,8 +260,8 @@ if __name__ == "__main__":
 
     FUNC_NUM = 100
 
-    TYPE = "DCSNN"
-    # TYPE = "OneHot"
+    # TYPE = "DCSNN"
+    TYPE = "OneHot"
     # TYPE = "EntityEmbedding"
 
     Xmin = 0.0
