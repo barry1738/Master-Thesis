@@ -140,7 +140,7 @@ def main():
 
     # Define the model
     if TYPE == "DCSNN":
-        model = DCSNNModel(in_dim=2, hidden_dim=[150], out_dim=1).to(device)
+        model = DCSNNModel(in_dim=2, hidden_dim=[50], out_dim=1).to(device)
     elif TYPE == "OneHot":
         model = OneHotModel(
             in_dim=1, hidden_dim=[50], out_dim=1, part_dim=FUNC_NUM
@@ -171,9 +171,9 @@ def main():
         z_valid = (np.argwhere(z_matrix_valid > 0)[:, 1] + 1).reshape(-1, 1) / 10
         z_plot = (np.argwhere(z_matrix_plot > 0)[:, 1] + 1).reshape(-1, 1) / 10
 
-        z = z - np.max(z) / 2
-        z_valid = z_valid - np.max(z_valid) / 2
-        z_plot = z_plot - np.max(z_plot) / 2
+        # z = z - np.max(z) / 2
+        # z_valid = z_valid - np.max(z_valid) / 2
+        # z_plot = z_plot - np.max(z_plot) / 2
     elif TYPE == "OneHot":
         z = z_matrix.copy()
         z_valid = z_matrix_valid.copy()
@@ -188,9 +188,9 @@ def main():
     # Create the Fourier series coefficients
     rng = np.random.default_rng(100)
     a = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
-    b = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
+    b = rng.normal(loc=0.0, scale=5.0, size=(100, FUNC_NUM))
     c = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
-    d = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
+    d = rng.normal(loc=0.0, scale=5.0, size=(100, FUNC_NUM))
 
     # Define the right-hand side vector
     rhs_f = exact_sol(x, z_matrix, a, b, c, d)
@@ -265,8 +265,8 @@ if __name__ == "__main__":
     # TYPE = "EntityEmbedding"
 
     Xmin = 0.0
-    # Xmax = 1.0
-    Xmax = 2 * np.pi
+    Xmax = 1.0
+    # Xmax = 2 * np.pi
 
     dir = "C:\\Users\\barry\\Desktop\\" + TYPE
     if not os.path.exists(dir):
