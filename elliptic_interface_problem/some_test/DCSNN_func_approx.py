@@ -140,7 +140,7 @@ def main():
 
     # Define the model
     if TYPE == "DCSNN":
-        model = DCSNNModel(in_dim=2, hidden_dim=[50], out_dim=1).to(device)
+        model = DCSNNModel(in_dim=2, hidden_dim=[150], out_dim=1).to(device)
     elif TYPE == "OneHot":
         model = OneHotModel(
             in_dim=1, hidden_dim=[50], out_dim=1, part_dim=FUNC_NUM
@@ -158,7 +158,7 @@ def main():
     print(f"Number of parameters = {nn.utils.parameters_to_vector(model.state_dict().values()).numel()}")
 
     # Create the training data and validation data
-    x = np.vstack((Xmin, Xmax * qmc.LatinHypercube(d=1).random(n=2000 - 2), Xmax))
+    x = np.vstack((Xmin, Xmax * qmc.LatinHypercube(d=1).random(n=1000 - 2), Xmax))
     x_valid = Xmax * qmc.LatinHypercube(d=1).random(n=10000)
     x_plot = np.linspace(Xmin, Xmax, 10000).reshape(-1, 1)
 
@@ -167,13 +167,13 @@ def main():
     z_matrix_plot = sign(x_plot)
 
     if TYPE == "DCSNN":
-        z = (np.argwhere(z_matrix > 0)[:, 1] + 1).reshape(-1, 1) / 1
-        z_valid = (np.argwhere(z_matrix_valid > 0)[:, 1] + 1).reshape(-1, 1) / 1
-        z_plot = (np.argwhere(z_matrix_plot > 0)[:, 1] + 1).reshape(-1, 1) / 1
+        z = (np.argwhere(z_matrix > 0)[:, 1] + 1).reshape(-1, 1) / 10
+        z_valid = (np.argwhere(z_matrix_valid > 0)[:, 1] + 1).reshape(-1, 1) / 10
+        z_plot = (np.argwhere(z_matrix_plot > 0)[:, 1] + 1).reshape(-1, 1) / 10
 
-        # z = z - np.max(z) / 2
-        # z_valid = z_valid - np.max(z_valid) / 2
-        # z_plot = z_plot - np.max(z_plot) / 2
+        z = z - np.max(z) / 2
+        z_valid = z_valid - np.max(z_valid) / 2
+        z_plot = z_plot - np.max(z_plot) / 2
     elif TYPE == "OneHot":
         z = z_matrix.copy()
         z_valid = z_matrix_valid.copy()
@@ -258,10 +258,10 @@ if __name__ == "__main__":
 
     plt.rcParams.update({"font.size": 12})
 
-    FUNC_NUM = 100
+    FUNC_NUM = 10
 
-    # TYPE = "DCSNN"
-    TYPE = "OneHot"
+    TYPE = "DCSNN"
+    # TYPE = "OneHot"
     # TYPE = "EntityEmbedding"
 
     Xmin = 0.0
