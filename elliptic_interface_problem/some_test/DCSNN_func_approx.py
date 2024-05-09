@@ -140,7 +140,7 @@ def main():
 
     # Define the model
     if TYPE == "DCSNN":
-        model = DCSNNModel(in_dim=2, hidden_dim=[50], out_dim=1).to(device)
+        model = DCSNNModel(in_dim=2, hidden_dim=[20, 20, 20], out_dim=1).to(device)
     elif TYPE == "OneHot":
         model = OneHotModel(
             in_dim=1, hidden_dim=[50], out_dim=1, part_dim=FUNC_NUM
@@ -167,9 +167,9 @@ def main():
     z_matrix_plot = sign(x_plot)
 
     if TYPE == "DCSNN":
-        z = (np.argwhere(z_matrix > 0)[:, 1] + 1).reshape(-1, 1) / 10
-        z_valid = (np.argwhere(z_matrix_valid > 0)[:, 1] + 1).reshape(-1, 1) / 10
-        z_plot = (np.argwhere(z_matrix_plot > 0)[:, 1] + 1).reshape(-1, 1) / 10
+        z = (np.argwhere(z_matrix > 0)[:, 1] + 1).reshape(-1, 1) / 1
+        z_valid = (np.argwhere(z_matrix_valid > 0)[:, 1] + 1).reshape(-1, 1) / 1
+        z_plot = (np.argwhere(z_matrix_plot > 0)[:, 1] + 1).reshape(-1, 1) / 1
 
         # z = z - np.max(z) / 2
         # z_valid = z_valid - np.max(z_valid) / 2
@@ -188,9 +188,9 @@ def main():
     # Create the Fourier series coefficients
     rng = np.random.default_rng(100)
     a = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
-    b = rng.normal(loc=0.0, scale=5.0, size=(100, FUNC_NUM))
+    b = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
     c = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
-    d = rng.normal(loc=0.0, scale=5.0, size=(100, FUNC_NUM))
+    d = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
 
     # Define the right-hand side vector
     rhs_f = exact_sol(x, z_matrix, a, b, c, d)
@@ -220,7 +220,7 @@ def main():
             tol=1.0e-20, device=device
         )
 
-        if loss[-1] < 1.0e0 and loss_valid[-1] / loss[-1] < 10.0:
+        if loss[-1] < 1.0e2 and loss_valid[-1] / loss[-1] < 10.0:
             print("Training successful.\n")
             # Compute infinity and L2 norm of the error
             U_pred = functional_call(model, params, (x_plot_torch, z_plot_torch)).cpu().detach().numpy()
@@ -258,15 +258,15 @@ if __name__ == "__main__":
 
     plt.rcParams.update({"font.size": 12})
 
-    FUNC_NUM = 10
+    FUNC_NUM = 50
 
     TYPE = "DCSNN"
     # TYPE = "OneHot"
     # TYPE = "EntityEmbedding"
 
     Xmin = 0.0
-    Xmax = 1.0
-    # Xmax = 2 * np.pi
+    # Xmax = 1.0
+    Xmax = 2 * np.pi
 
     dir = "C:\\Users\\barry\\Desktop\\" + TYPE
     if not os.path.exists(dir):
