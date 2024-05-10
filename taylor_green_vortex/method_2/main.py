@@ -84,7 +84,7 @@ def main():
     # Define the neural network
     u_star_model = PinnModel([2, 20, 20, 1]).to(device)
     v_star_model = PinnModel([2, 20, 20, 1]).to(device)
-    phi_model = PinnModel([2, 20, 20, 1]).to(device)
+    phi_model = PinnModel([2, 50, 50, 1]).to(device)
     u_model = PinnModel([2, 20, 20, 1]).to(device)
     v_model = PinnModel([2, 20, 20, 1]).to(device)
     p_model = PinnModel([2, 20, 20, 1]).to(device)
@@ -130,8 +130,8 @@ def main():
     # Define the training data
     mesh = pm.CreateSquareMesh()
     # mesh = pm.CreateCircleMesh()
-    x_inner, y_inner = mesh.inner_points(1024)
-    x_bd, y_bd = mesh.boundary_points(32)
+    x_inner, y_inner = mesh.inner_points(1000)
+    x_bd, y_bd = mesh.boundary_points(30)
     x_inner_valid, y_inner_valid = mesh.inner_points(10000)
     x_bd_valid, y_bd_valid = mesh.boundary_points(100)
     nx, ny = mesh.normal_vector(x_bd, y_bd)
@@ -475,7 +475,7 @@ if __name__ == "__main__":
     print(f'Re = {Re}, Dt = {Dt}, time_end = {time_end} ...')
 
     pwd = "C:\\barry_doc\\Training_Data\\"
-    dir_name = "TaylorGreenVortex_square\\"
+    dir_name = "TaylorGreenVortex_square_n10000_p501\\"
     if not os.path.exists(pwd + dir_name):
         print("Creating data directory...")
         os.makedirs(pwd + dir_name)

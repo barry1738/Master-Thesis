@@ -109,7 +109,7 @@ def projection_step(model, points, rhs_vec, device):
         savedloss_valid.append(loss_valid.item())
 
         # Update alpha and beta
-        if iter % 100 == 0:
+        if iter % 1000 == 0:
             dloss_res_dp = grad(
                 lambda primal: torch.sum(
                     compute_loss_res(model, primal, x_inner, y_inner, Rf_proj)** 2
