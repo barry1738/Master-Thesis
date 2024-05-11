@@ -88,9 +88,9 @@ def main():
     u_star_model = PinnModel([2, 1])
     v_star_model = PinnModel([2, 1])
     phi_model = PinnModel([2, 1])
-    psi_model = PinnModel([2, 1])
+    # psi_model = PinnModel([2, 1])
 
-    pwd = "C:\\Users\\barry\\OneDrive\\thesis\\Data\\TaylorGreenVortex_Streamfunction_square_5s\\"
+    pwd = "C:\\barry_doc\\Training_Data\\TaylorGreenVortex_square_n1000\\"
     models_dir = pwd + "models\\"
     params_dir = pwd + "params\\"
 
@@ -98,7 +98,7 @@ def main():
     u_star_model = torch.load(models_dir + "u_star_model.pt", map_location=torch.device("cpu"))
     v_star_model = torch.load(models_dir + "v_star_model.pt", map_location=torch.device("cpu"))
     phi_model = torch.load(models_dir + "phi_model.pt", map_location=torch.device("cpu"))
-    psi_model = torch.load(models_dir + "psi_model.pt", map_location=torch.device("cpu"))
+    # psi_model = torch.load(models_dir + "psi_model.pt", map_location=torch.device("cpu"))
     u_model = torch.load(models_dir + "u_model.pt", map_location=torch.device("cpu"))
     v_model = torch.load(models_dir + "v_model.pt", map_location=torch.device("cpu"))
     p_model = torch.load(models_dir + "p_model.pt", map_location=torch.device("cpu"))
@@ -107,7 +107,7 @@ def main():
     u_star_params = torch.load(params_dir + f"u_star_params\\u_star_{step}.pt", map_location=torch.device("cpu"))
     v_star_params = torch.load(params_dir + f"v_star_params\\v_star_{step}.pt", map_location=torch.device("cpu"))
     phi_params = torch.load(params_dir + f"phi_params\\phi_{step}.pt", map_location=torch.device("cpu"))
-    psi_params = torch.load(params_dir + f"psi_params\\psi_{step}.pt", map_location=torch.device("cpu"))
+    # psi_params = torch.load(params_dir + f"psi_params\\psi_{step}.pt", map_location=torch.device("cpu"))
     u_params = torch.load(params_dir + f"u_params\\u_{step}.pt", map_location=torch.device("cpu"))
     v_params = torch.load(params_dir + f"v_params\\v_{step}.pt", map_location=torch.device("cpu"))
     p_params = torch.load(params_dir + f"p_params\\p_{step}.pt", map_location=torch.device("cpu"))
@@ -121,7 +121,7 @@ def main():
     u_star_model.load_state_dict(u_star_params)
     v_star_model.load_state_dict(v_star_params)
     phi_model.load_state_dict(phi_params)
-    psi_model.load_state_dict(psi_params)
+    # psi_model.load_state_dict(psi_params)
     u_model.load_state_dict(u_params)
     v_model.load_state_dict(v_params)
     p_model.load_state_dict(p_params)
@@ -130,7 +130,7 @@ def main():
     u_star_model.eval()
     v_star_model.eval()
     phi_model.eval()
-    psi_model.eval()
+    # psi_model.eval()
     u_model.eval()
     v_model.eval()
     p_model.eval()
@@ -143,8 +143,10 @@ def main():
     )
     x_plot, y_plot = x_plot.reshape(-1, 1), y_plot.reshape(-1, 1)
 
+    u_star_pred = functional_call(u_star_model, u_star_params, (x_plot, y_plot)).detach().numpy()
+    v_star_pred = functional_call(v_star_model, v_star_params, (x_plot, y_plot)).detach().numpy()
     phi_pred = functional_call(phi_model, phi_params, (x_plot, y_plot)).detach().numpy()
-    psi_pred = functional_call(psi_model, psi_params, (x_plot, y_plot)).detach().numpy()
+    # psi_pred = functional_call(psi_model, psi_params, (x_plot, y_plot)).detach().numpy()
     u_pred = functional_call(u_model, u_params, (x_plot, y_plot)).detach().numpy()
     v_pred = functional_call(v_model, v_params, (x_plot, y_plot)).detach().numpy()
     p_pred = functional_call(p_model, p_params, (x_plot, y_plot)).detach().numpy()
@@ -156,14 +158,13 @@ def main():
     p_error = np.abs(p_pred - p_exact)
 
     fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-    ax.scatter(x_plot, y_plot, p_error, c=p_error, cmap="coolwarm", s=1)
-    ax.set_title("p error")
+    ax.scatter(x_plot, y_plot, p_pred, c=p_pred, cmap="coolwarm", s=1)
+    ax.set_title("p_pred")
     plt.show()
-
 
 if __name__ == "__main__":
     Re = 1000
-    step = 10
+    step = 5
     time_step = 0.02
 
     main()
