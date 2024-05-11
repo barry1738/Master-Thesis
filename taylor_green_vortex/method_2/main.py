@@ -84,7 +84,7 @@ def main():
     # Define the neural network
     u_star_model = PinnModel([2, 20, 20, 1]).to(device)
     v_star_model = PinnModel([2, 20, 20, 1]).to(device)
-    phi_model = PinnModel([2, 50, 50, 1]).to(device)
+    phi_model = PinnModel([2, 30, 30, 1]).to(device)
     u_model = PinnModel([2, 20, 20, 1]).to(device)
     v_model = PinnModel([2, 20, 20, 1]).to(device)
     p_model = PinnModel([2, 20, 20, 1]).to(device)
@@ -109,15 +109,15 @@ def main():
     p_params_old = p_params.copy()
 
     # Load the parameters
-    # u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_230.pt")
-    # v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_230.pt")
-    # phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_230.pt")
-    # u_params = torch.load(pwd + dir_name + "params\\u_params\\u_230.pt")
-    # v_params = torch.load(pwd + dir_name + "params\\v_params\\v_230.pt")
-    # p_params = torch.load(pwd + dir_name + "params\\p_params\\p_230.pt")
-    # u_params_old = torch.load(pwd + dir_name + "params\\u_params\\u_229.pt")
-    # v_params_old = torch.load(pwd + dir_name + "params\\v_params\\v_229.pt")
-    # p_params_old = torch.load(pwd + dir_name + "params\\p_params\\p_229.pt")
+    # u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_9.pt")
+    # v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_9.pt")
+    # phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_9.pt")
+    # u_params = torch.load(pwd + dir_name + "params\\u_params\\u_9.pt")
+    # v_params = torch.load(pwd + dir_name + "params\\v_params\\v_9.pt")
+    # p_params = torch.load(pwd + dir_name + "params\\p_params\\p_9.pt")
+    # u_params_old = torch.load(pwd + dir_name + "params\\u_params\\u_8.pt")
+    # v_params_old = torch.load(pwd + dir_name + "params\\v_params\\v_8.pt")
+    # p_params_old = torch.load(pwd + dir_name + "params\\p_params\\p_8.pt")
 
     # Print the total number of parameters
     total_params_u_star = u_star_model.num_total_params()
@@ -171,6 +171,7 @@ def main():
         ny_valid,
     )
 
+    # for step in range(10, int(time_end / Dt) + 1):
     for step in range(2, int(time_end / Dt) + 1):
         print(f"Step {step}, time = {Dt * step:.3f} ...")
         print("=====================================")
@@ -392,7 +393,7 @@ def main():
         # else:
         #     print("They are different ...")
 
-        if step % 1 == 0:
+        if step % 5 == 0:
             x_plot, y_plot = torch.meshgrid(
                 torch.linspace(0, 1, 200), torch.linspace(0, 1, 200), indexing="xy"
             )
@@ -475,7 +476,7 @@ if __name__ == "__main__":
     print(f'Re = {Re}, Dt = {Dt}, time_end = {time_end} ...')
 
     pwd = "C:\\barry_doc\\Training_Data\\"
-    dir_name = "TaylorGreenVortex_square_n10000_p501\\"
+    dir_name = "TaylorGreenVortex_square\\"
     if not os.path.exists(pwd + dir_name):
         print("Creating data directory...")
         os.makedirs(pwd + dir_name)
