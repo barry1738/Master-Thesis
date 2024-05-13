@@ -140,7 +140,7 @@ def main():
 
     # Define the model
     if TYPE == "DCSNN":
-        model = DCSNNModel(in_dim=2, hidden_dim=[20, 20, 20], out_dim=1).to(device)
+        model = DCSNNModel(in_dim=2, hidden_dim=[50], out_dim=1).to(device)
     elif TYPE == "OneHot":
         model = OneHotModel(
             in_dim=1, hidden_dim=[50], out_dim=1, part_dim=FUNC_NUM
@@ -186,15 +186,15 @@ def main():
     print(f"min z = {np.min(z)}")
 
     # Create the Fourier series coefficients
-    rng = np.random.default_rng(100)
+    rng = np.random.default_rng(10)
     a = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
     b = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
     c = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
     d = rng.normal(loc=0.0, scale=1.0, size=(100, FUNC_NUM))
 
     # Define the right-hand side vector
-    rhs_f = exact_sol(x, z_matrix, a, b, c, d)
-    rhs_f_valid = exact_sol(x_valid, z_matrix_valid, a, b, c, d)
+    rhs_f = 0.01 * exact_sol(x, z_matrix, a, b, c, d)
+    rhs_f_valid = 0.01 * exact_sol(x_valid, z_matrix_valid, a, b, c, d)
 
     # Convert the data to torch tensors
     x_plot_torch = torch.from_numpy(x_plot).to(device)
@@ -202,10 +202,10 @@ def main():
     U_exact = exact_sol(x_plot, z_matrix_plot, a, b, c, d)
 
     # Plot the exact solution
-    # fig, ax = plt.subplots()
-    # ax.scatter(x_valid, rhs_f_valid, s=3, c="b")
-    # ax.scatter(x, rhs_f, s=3, c="r")
-    # plt.show()
+    fig, ax = plt.subplots()
+    ax.scatter(x_valid, rhs_f_valid, s=3, c="b")
+    ax.scatter(x, rhs_f, s=3, c="r")
+    plt.show()
 
     Inf_norm = []
     L2_norm = []
