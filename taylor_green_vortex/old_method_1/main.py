@@ -1030,7 +1030,6 @@ if __name__ == "__main__":
         os.makedirs(pwd + dir_name + "u_star_model")
         os.makedirs(pwd + dir_name + "v_star_model")
         os.makedirs(pwd + dir_name + "phi_model")
-        os.makedirs(pwd + dir_name + "psi_model")
         os.makedirs(pwd + dir_name + "data")
         os.makedirs(pwd + dir_name + "figures\\u")
         os.makedirs(pwd + dir_name + "figures\\v")
