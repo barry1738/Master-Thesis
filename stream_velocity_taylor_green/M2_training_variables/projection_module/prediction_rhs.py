@@ -118,8 +118,8 @@ def prediction_rhs(model, params, x, y, step, device):
     else:
         u1 = mf.predict_dy(model_psi, params_psi, x_inner, y_inner)
         v1 = -mf.predict_dx(model_psi, params_psi, x_inner, y_inner)
-        u0 = mf.predict(model_psi, params_psi_old, x_inner, y_inner)
-        v0 = mf.predict(model_psi, params_psi_old, x_inner, y_inner)
+        u0 = mf.predict_dy(model_psi, params_psi_old, x_inner, y_inner)
+        v0 = -mf.predict_dx(model_psi, params_psi_old, x_inner, y_inner)
         du1dx = mf.predict_dyx(model_psi, params_psi, x_inner, y_inner)
         du1dy = mf.predict_dyy(model_psi, params_psi, x_inner, y_inner)
         dv1dx = -mf.predict_dxx(model_psi, params_psi, x_inner, y_inner)

@@ -55,7 +55,7 @@ def update_step(model, params, points, prev_value, prev_value_valid, device):
     new_value["p1"] = (
         torch.tensor(prev_value["p1"], device=device)
         + mf.predict(phi_model, phi_params, x_training, y_training)
-        - (2 * Dt) / (3 * Re) * (
+        - (1.0 / Re) * (
             mf.predict_dx(u_star_model, u_star_params, x_training, y_training)
             + mf.predict_dy(v_star_model, v_star_params, x_training, y_training)
         )
@@ -67,7 +67,7 @@ def update_step(model, params, points, prev_value, prev_value_valid, device):
     new_value["dp1dx"] = (
         torch.tensor(prev_value["dp1dx"], device=device)
         + mf.predict_dx(phi_model, phi_params, x_training, y_training)
-        - (2 * Dt) / (3 * Re) * (
+        - (1.0 / Re) * (
             mf.predict_dxx(u_star_model, u_star_params, x_training, y_training)
             + mf.predict_dyx(v_star_model, v_star_params, x_training, y_training)
         )
@@ -75,7 +75,7 @@ def update_step(model, params, points, prev_value, prev_value_valid, device):
     new_value["dp1dy"] = (
         torch.tensor(prev_value["dp1dy"], device=device)
         + mf.predict_dy(phi_model, phi_params, x_training, y_training)
-        - (2 * Dt) / (3 * Re) * (
+        - (1.0 / Re) * (
             mf.predict_dxy(u_star_model, u_star_params, x_training, y_training)
             + mf.predict_dyy(v_star_model, v_star_params, x_training, y_training)
         )
@@ -86,7 +86,7 @@ def update_step(model, params, points, prev_value, prev_value_valid, device):
     new_value_valid["p1"] = (
         torch.tensor(prev_value_valid["p1"], device=device)
         + mf.predict(phi_model, phi_params, x_test, y_test)
-        - (2 * Dt) / (3 * Re) * (
+        - (1.0 / Re) * (
             mf.predict_dx(u_star_model, u_star_params, x_test, y_test)
             + mf.predict_dy(v_star_model, v_star_params, x_test, y_test)
         )
@@ -98,7 +98,7 @@ def update_step(model, params, points, prev_value, prev_value_valid, device):
     new_value_valid["dp1dx"] = (
         torch.tensor(prev_value_valid["dp1dx"], device=device)
         + mf.predict_dx(phi_model, phi_params, x_test, y_test)
-        - (2 * Dt) / (3 * Re) * (
+        - (1.0 / Re) * (
             mf.predict_dxx(u_star_model, u_star_params, x_test, y_test)
             + mf.predict_dyx(v_star_model, v_star_params, x_test, y_test)
         )
@@ -106,7 +106,7 @@ def update_step(model, params, points, prev_value, prev_value_valid, device):
     new_value_valid["dp1dy"] = (
         torch.tensor(prev_value_valid["dp1dy"], device=device)
         + mf.predict_dy(phi_model, phi_params, x_test, y_test)
-        - (2 * Dt) / (3 * Re) * (
+        - (1.0 / Re) * (
             mf.predict_dxy(u_star_model, u_star_params, x_test, y_test)
             + mf.predict_dyy(v_star_model, v_star_params, x_test, y_test)
         )

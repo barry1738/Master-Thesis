@@ -125,8 +125,8 @@ def main():
     # Define the training data
     mesh = pm.CreateSquareMesh()
     # mesh = pm.CreateCircleMesh()
-    x_inner, y_inner = mesh.inner_points(1000)
-    x_bd, y_bd = mesh.boundary_points(30)
+    x_inner, y_inner = mesh.inner_points(500)
+    x_bd, y_bd = mesh.boundary_points(20)
     x_inner_valid, y_inner_valid = mesh.inner_points(10000)
     x_bd_valid, y_bd_valid = mesh.boundary_points(100)
 
@@ -289,7 +289,7 @@ def main():
             Rf_p = (
                 pm.exact_sol(x, y, (step - 1) * Dt, Re, "p")
                 + mf.predict(phi_model, phi_params, x, y)
-                - ((2 * Dt) / (3 * Re)) * (
+                - (1.0 / Re) * (
                     mf.predict_dx(u_star_model, u_star_params, x, y)
                     + mf.predict_dy(v_star_model, v_star_params, x, y)
                 )
@@ -297,7 +297,7 @@ def main():
             Rf_p_valid = (
                 pm.exact_sol(x_v, y_v, (step - 1) * Dt, Re, "p")
                 + mf.predict(phi_model, phi_params, x_v, y_v)
-                - ((2 * Dt) / (3 * Re)) * (
+                - (1.0 / Re) * (
                     mf.predict_dx(u_star_model, u_star_params, x_v, y_v)
                     + mf.predict_dy(v_star_model, v_star_params, x_v, y_v)
                 )
@@ -306,7 +306,7 @@ def main():
             Rf_p = (
                 mf.predict(p_model, p_params, x, y)
                 + mf.predict(phi_model, phi_params, x, y)
-                - ((2 * Dt) / (3 * Re)) * (
+                - (1.0 / Re) * (
                     mf.predict_dx(u_star_model, u_star_params, x, y)
                     + mf.predict_dy(v_star_model, v_star_params, x, y)
                 )
@@ -314,7 +314,7 @@ def main():
             Rf_p_valid = (
                 mf.predict(p_model, p_params, x_v, y_v)
                 + mf.predict(phi_model, phi_params, x_v, y_v)
-                - ((2 * Dt) / (3 * Re)) * (
+                - (1.0 / Re) * (
                     mf.predict_dx(u_star_model, u_star_params, x_v, y_v)
                     + mf.predict_dy(v_star_model, v_star_params, x_v, y_v)
                 )
