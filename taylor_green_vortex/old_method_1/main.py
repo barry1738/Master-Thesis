@@ -90,6 +90,13 @@ class PinnModel(nn.Module):
     def num_total_params(self):
         return sum(p.numel() for p in self.parameters())
     
+    
+def weights_init(model):
+    """Initialize the weights of the neural network."""
+    if isinstance(model, nn.Linear):
+        # nn.init.xavier_uniform_(model.weight.data, gain=5)
+        nn.init.xavier_normal_(model.weight.data, gain=5)
+
 
 def prediction_step(model_u_star, model_v_star, training_data, prev_val, prev_val_valid, step):
     """The prediction step of the projection method"""
@@ -106,11 +113,13 @@ def prediction_step(model_u_star, model_v_star, training_data, prev_val, prev_va
     x_bd_v, y_bd_v = x_bd_v.to(device), y_bd_v.to(device)
 
     # Define the parameters
+    model_u_star.apply(weights_init)
+    model_v_star.apply(weights_init)
     u_star_params = dict(model_u_star.named_parameters())
     v_star_params = dict(model_v_star.named_parameters())
     # 5 times the parameters of phi_params
-    u_star_params_flatten = 5 * nn.utils.parameters_to_vector(u_star_params.values())
-    v_star_params_flatten = 5 * nn.utils.parameters_to_vector(v_star_params.values())
+    u_star_params_flatten = nn.utils.parameters_to_vector(u_star_params.values())
+    v_star_params_flatten = nn.utils.parameters_to_vector(v_star_params.values())
     nn.utils.vector_to_parameters(u_star_params_flatten, u_star_params.values())
     nn.utils.vector_to_parameters(v_star_params_flatten, v_star_params.values())
 
@@ -446,9 +455,10 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
     nx_v, ny_v = nx_v.to(device), ny_v.to(device)
 
     # Define the parameters
+    model_phi.apply(weights_init)
     phi_params = dict(model_phi.named_parameters())
     # 10 times the parameters of phi_params
-    phi_params_flatten = nn.utils.parameters_to_vector(phi_params.values()) * 10
+    phi_params_flatten = nn.utils.parameters_to_vector(phi_params.values())
     nn.utils.vector_to_parameters(phi_params_flatten, phi_params.values())
 
     # Compute the validate right-hand side values
@@ -479,7 +489,7 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
     
     # Start training
     Niter = 1000
-    tol = 1.0e-9
+    tol = 1.0e-8
     alpha = 1.0
     beta = 1.0
     savedloss = []
@@ -489,8 +499,8 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
     while overfitting:
         mu = 1.0e3
         # Create the new trianing data
-        x_inner, y_inner = mesh.inner_points(100)
-        x_bd, y_bd = mesh.boundary_points(10)
+        x_inner, y_inner = mesh.inner_points(500)
+        x_bd, y_bd = mesh.boundary_points(20)
         nx, ny = mesh.normal_vector(x_bd, y_bd)
 
         # Move the data to the device
@@ -554,7 +564,7 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
             savedloss_valid.append(loss_valid.item())
 
             # Update alpha and beta
-            if iter % 100 == 0:
+            if iter % 1000 == 0:
                 dloss_res_dp = grad(
                     lambda primal: torch.sum(
                         compute_loss_res(model_phi, primal, x_inner, y_inner, Rf_inner) ** 2
@@ -601,7 +611,7 @@ def projection_step(u_star_model, v_star_model, model_phi, u_star_params, v_star
                 break
                 
             # Update the parameter mu
-            if iter % 3 == 0:
+            if iter % 5 == 0:
                 if savedloss[iter] > savedloss[iter - 1]:
                     mu = min(2 * mu, 1e8)
                 else:
@@ -671,7 +681,7 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
     new_value["p1"] = (
         torch.tensor(prev_value["p1"], device=device)
         + phi_model.predict(phi_model, phi_params, x_training, y_training)
-        - (1 / Re) * (
+        - ((2 * Dt) / (3 * Re)) * (
             phi_model.predict_dx(u_star_model, u_star_params, x_training, y_training)
             + phi_model.predict_dy(v_star_model, v_star_params, x_training, y_training)
         )
@@ -695,7 +705,7 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
     new_value["dp1dx"] = (
         torch.tensor(prev_value["dp1dx"], device=device)
         + phi_model.predict_dx(phi_model, phi_params, x_training, y_training)
-        - (1 / Re) * (
+        - ((2 * Dt) / (3 * Re)) * (
             phi_model.predict_dxx(u_star_model, u_star_params, x_training, y_training)
             + phi_model.predict_dyx(v_star_model, v_star_params, x_training, y_training)
         )
@@ -703,7 +713,7 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
     new_value["dp1dy"] = (
         torch.tensor(prev_value["dp1dy"], device=device)
         + phi_model.predict_dy(phi_model, phi_params, x_training, y_training)
-        - (1 / Re) * (
+        - ((2 * Dt) / (3 * Re)) * (
             phi_model.predict_dxy(u_star_model, u_star_params, x_training, y_training)
             + phi_model.predict_dyy(v_star_model, v_star_params, x_training, y_training)
         )
@@ -720,7 +730,7 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
     new_value_valid["p1"] = (
         torch.tensor(prev_value_valid["p1"], device=device)
         + phi_model.predict(phi_model, phi_params, x_test, y_test)
-        - (1 / Re) * (
+        - ((2 * Dt) / (3 * Re)) * (
             phi_model.predict_dx(u_star_model, u_star_params, x_test, y_test)
             + phi_model.predict_dy(v_star_model, v_star_params, x_test, y_test)
         )
@@ -744,7 +754,7 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
     new_value_valid["dp1dx"] = (
         torch.tensor(prev_value_valid["dp1dx"], device=device)
         + phi_model.predict_dx(phi_model, phi_params, x_test, y_test)
-        - (1 / Re) * (
+        - ((2 * Dt) / (3 * Re)) * (
             phi_model.predict_dxx(u_star_model, u_star_params, x_test, y_test)
             + phi_model.predict_dyx(v_star_model, v_star_params, x_test, y_test)
         )
@@ -752,7 +762,7 @@ def update_step(training_data, u_star_model, v_star_model, phi_model,
     new_value_valid["dp1dy"] = (
         torch.tensor(prev_value_valid["dp1dy"], device=device)
         + phi_model.predict_dy(phi_model, phi_params, x_test, y_test)
-        - (1 / Re) * (
+        - ((2 * Dt) / (3 * Re)) * (
             phi_model.predict_dxy(u_star_model, u_star_params, x_test, y_test)
             + phi_model.predict_dyy(v_star_model, v_star_params, x_test, y_test)
         )
@@ -791,9 +801,12 @@ def plot_figure(x_data, y_data, plot_val, title, file_name):
 
 def main():
     # Define the neural network
-    u_star_model = PinnModel([2, 40, 1]).to(device)
-    v_star_model = PinnModel([2, 40, 1]).to(device)
-    phi_model = PinnModel([2, 100, 1]).to(device)
+    u_star_model = PinnModel([2, 20, 20, 1]).to(device)
+    v_star_model = PinnModel([2, 20, 20, 1]).to(device)
+    phi_model = PinnModel([2, 20, 20, 1]).to(device)
+    torch.save(u_star_model, pwd + dir_name + "models\\u_star_model.pt")
+    torch.save(v_star_model, pwd + dir_name + "models\\v_star_model.pt")
+    torch.save(phi_model, pwd + dir_name + "models\\phi_model.pt")
 
     total_params_u_star = u_star_model.num_total_params()
     total_params_v_star = v_star_model.num_total_params()
@@ -804,8 +817,8 @@ def main():
 
     # Define the training data
     mesh = CreateMesh()
-    x_inner, y_inner = mesh.inner_points(100)
-    x_bd, y_bd = mesh.boundary_points(10)
+    x_inner, y_inner = mesh.inner_points(500)
+    x_bd, y_bd = mesh.boundary_points(20)
     x_inner_valid, y_inner_valid = mesh.inner_points(90000)
     x_bd_valid, y_bd_valid = mesh.boundary_points(300)
     # Compute the boundary normal vector
@@ -933,8 +946,23 @@ def main():
         )
         u_star_model.load_state_dict(u_star_params)
         v_star_model.load_state_dict(v_star_params)
-        torch.save(u_star_model, pwd + dir_name + f"u_star_model\\u_star_{step}.pt")
-        torch.save(v_star_model, pwd + dir_name + f"v_star_model\\v_star_{step}.pt")
+        torch.save(u_star_params, pwd + dir_name + f"params\\u_star\\u_star_{step}.pt")
+        torch.save(v_star_params, pwd + dir_name + f"params\\v_star\\v_star_{step}.pt")
+
+        plot_figure(
+            x_data=prev_value_valid["x_data"],
+            y_data=prev_value_valid["y_data"],
+            plot_val=u_star_model.predict(u_star_model, u_star_params, x_test.to(device), y_test.to(device)).cpu().detach().numpy(),
+            title="u*",
+            file_name=f"u_star\\u_star_{step}.png",
+        )
+        plot_figure(
+            x_data=prev_value_valid["x_data"],
+            y_data=prev_value_valid["y_data"],
+            plot_val=v_star_model.predict(v_star_model, v_star_params, x_test.to(device), y_test.to(device)).cpu().detach().numpy(),
+            title="v*",
+            file_name=f"v_star\\v_star_{step}.png",
+        )
         print("Finish the prediction step ...")
 
         # Project the intermediate velocity field onto the space of divergence-free fields
@@ -942,7 +970,15 @@ def main():
             u_star_model, v_star_model, phi_model, u_star_params, v_star_params, step
         )
         phi_model.load_state_dict(phi_params)
-        torch.save(phi_model, pwd + dir_name + f"phi_model\\phi_{step}.pt")
+        torch.save(phi_params, pwd + dir_name + f"params\\phi\\phi_{step}.pt")
+        
+        plot_figure(
+            x_data=prev_value_valid["x_data"],
+            y_data=prev_value_valid["y_data"],
+            plot_val=phi_model.predict(phi_model, phi_params, x_test.to(device), y_test.to(device)).cpu().detach().numpy(),
+            title="phi",
+            file_name=f"phi\\phi_{step}.png",
+        )
         print("Finish the projection step ...")
 
         # Update the velocity field and pressure field
@@ -1020,18 +1056,22 @@ def main():
 if __name__ == "__main__":
     Re = 1000
     Dt = 0.01
-    time_end = 0.05
+    time_end = 0.1
 
     pwd = "C:\\barry_doc\\Training_Data\\"
     dir_name = "TaylorGreenVortex_1000_0.01\\"
     if not os.path.exists(pwd + dir_name):
         print("Creating data directory...")
         os.makedirs(pwd + dir_name)
-        os.makedirs(pwd + dir_name + "u_star_model")
-        os.makedirs(pwd + dir_name + "v_star_model")
-        os.makedirs(pwd + dir_name + "phi_model")
-        os.makedirs(pwd + dir_name + "psi_model")
+        os.makedirs(pwd + dir_name + "models")
+        os.makedirs(pwd + dir_name + "params")
+        os.makedirs(pwd + dir_name + "params\\u_star")
+        os.makedirs(pwd + dir_name + "params\\v_star")
+        os.makedirs(pwd + dir_name + "params\\phi")
         os.makedirs(pwd + dir_name + "data")
+        os.makedirs(pwd + dir_name + "figures\\u_star")
+        os.makedirs(pwd + dir_name + "figures\\v_star")
+        os.makedirs(pwd + dir_name + "figures\\phi")
         os.makedirs(pwd + dir_name + "figures\\u")
         os.makedirs(pwd + dir_name + "figures\\v")
         os.makedirs(pwd + dir_name + "figures\\p")
