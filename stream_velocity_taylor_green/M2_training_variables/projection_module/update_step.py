@@ -11,8 +11,8 @@ def update_step(model, points, rhs_vec, device):
     def weights_init(model):
         """Initialize the weights of the neural network."""
         if isinstance(model, nn.Linear):
-            nn.init.xavier_uniform_(model.weight.data, gain=5)
-            # nn.init.xavier_normal_(model.weight.data, gain=5)
+            # nn.init.xavier_uniform_(model.weight.data, gain=5)
+            nn.init.xavier_normal_(model.weight.data, gain=3)
 
     model.apply(weights_init)
     params = model.state_dict()

@@ -8,8 +8,8 @@ def prediction_rhs(model, params, x, y, step, device):
     """
     Predict the right-hand side
     """
-    model_u, model_v, model_p = model
-    params_u, params_v, params_p, params_u_old, params_v_old, params_p_old = params
+    model_psi, model_p = model
+    params_psi, params_p, params_psi_old = params
     x_inner, x_bd = x
     y_inner, y_bd = y
 
@@ -71,14 +71,14 @@ def prediction_rhs(model, params, x, y, step, device):
         return rhs_u, rhs_v, rhs_u_bd, rhs_v_bd
 
     elif step == 3:
-        u1 = mf.predict(model_u, params_u, x_inner, y_inner)
-        v1 = mf.predict(model_v, params_v, x_inner, y_inner)
+        u1 = mf.predict_dy(model_psi, params_psi, x_inner, y_inner)
+        v1 = -mf.predict_dx(model_psi, params_psi, x_inner, y_inner)
         u0 = exact_sol(x_inner, y_inner, (step - 2) * TIME_STEP, REYNOLDS_NUM, "u")
         v0 = exact_sol(x_inner, y_inner, (step - 2) * TIME_STEP, REYNOLDS_NUM, "v")
-        du1dx = mf.predict_dx(model_u, params_u, x_inner, y_inner)
-        du1dy = mf.predict_dy(model_u, params_u, x_inner, y_inner)
-        dv1dx = mf.predict_dx(model_v, params_v, x_inner, y_inner)
-        dv1dy = mf.predict_dy(model_v, params_v, x_inner, y_inner)
+        du1dx = mf.predict_dyx(model_psi, params_psi, x_inner, y_inner)
+        du1dy = mf.predict_dyy(model_psi, params_psi, x_inner, y_inner)
+        dv1dx = -mf.predict_dxx(model_psi, params_psi, x_inner, y_inner)
+        dv1dy = -mf.predict_dxy(model_psi, params_psi, x_inner, y_inner)
         dp1dx = mf.predict_dx(model_p, params_p, x_inner, y_inner)
         dp1dy = mf.predict_dy(model_p, params_p, x_inner, y_inner)
         du0dx = vmap(
@@ -116,20 +116,20 @@ def prediction_rhs(model, params, x, y, step, device):
         return rhs_u, rhs_v, rhs_u_bd, rhs_v_bd
     
     else:
-        u1 = mf.predict(model_u, params_u, x_inner, y_inner)
-        v1 = mf.predict(model_v, params_v, x_inner, y_inner)
-        u0 = mf.predict(model_u, params_u_old, x_inner, y_inner)
-        v0 = mf.predict(model_v, params_v_old, x_inner, y_inner)
-        du1dx = mf.predict_dx(model_u, params_u, x_inner, y_inner)
-        du1dy = mf.predict_dy(model_u, params_u, x_inner, y_inner)
-        dv1dx = mf.predict_dx(model_v, params_v, x_inner, y_inner)
-        dv1dy = mf.predict_dy(model_v, params_v, x_inner, y_inner)
+        u1 = mf.predict_dy(model_psi, params_psi, x_inner, y_inner)
+        v1 = -mf.predict_dx(model_psi, params_psi, x_inner, y_inner)
+        u0 = mf.predict(model_psi, params_psi_old, x_inner, y_inner)
+        v0 = mf.predict(model_psi, params_psi_old, x_inner, y_inner)
+        du1dx = mf.predict_dyx(model_psi, params_psi, x_inner, y_inner)
+        du1dy = mf.predict_dyy(model_psi, params_psi, x_inner, y_inner)
+        dv1dx = -mf.predict_dxx(model_psi, params_psi, x_inner, y_inner)
+        dv1dy = -mf.predict_dxy(model_psi, params_psi, x_inner, y_inner)
         dp1dx = mf.predict_dx(model_p, params_p, x_inner, y_inner)
         dp1dy = mf.predict_dy(model_p, params_p, x_inner, y_inner)
-        du0dx = mf.predict_dx(model_u, params_u_old, x_inner, y_inner)
-        du0dy = mf.predict_dy(model_u, params_u_old, x_inner, y_inner)
-        dv0dx = mf.predict_dx(model_v, params_v_old, x_inner, y_inner)
-        dv0dy = mf.predict_dy(model_v, params_v_old, x_inner, y_inner)
+        du0dx = mf.predict_dyx(model_psi, params_psi_old, x_inner, y_inner)
+        du0dy = mf.predict_dyy(model_psi, params_psi_old, x_inner, y_inner)
+        dv0dx = -mf.predict_dxx(model_psi, params_psi_old, x_inner, y_inner)
+        dv0dy = -mf.predict_dxy(model_psi, params_psi_old, x_inner, y_inner)
 
         rhs_u = (
             4 * u1
