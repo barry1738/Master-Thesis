@@ -1063,17 +1063,11 @@ if __name__ == "__main__":
     if not os.path.exists(pwd + dir_name):
         print("Creating data directory...")
         os.makedirs(pwd + dir_name)
-<<<<<<< HEAD
         os.makedirs(pwd + dir_name + "models")
         os.makedirs(pwd + dir_name + "params")
         os.makedirs(pwd + dir_name + "params\\u_star")
         os.makedirs(pwd + dir_name + "params\\v_star")
         os.makedirs(pwd + dir_name + "params\\phi")
-=======
-        os.makedirs(pwd + dir_name + "u_star_model")
-        os.makedirs(pwd + dir_name + "v_star_model")
-        os.makedirs(pwd + dir_name + "phi_model")
->>>>>>> 7f012ebc150d730b28860564f937e03c473ca9b6
         os.makedirs(pwd + dir_name + "data")
         os.makedirs(pwd + dir_name + "figures\\u_star")
         os.makedirs(pwd + dir_name + "figures\\v_star")
