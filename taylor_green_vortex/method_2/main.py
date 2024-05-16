@@ -84,7 +84,7 @@ def main():
     # Define the neural network
     u_star_model = PinnModel([2, 20, 20, 1]).to(device)
     v_star_model = PinnModel([2, 20, 20, 1]).to(device)
-    phi_model = PinnModel([2, 30, 30, 1]).to(device)
+    phi_model = PinnModel([2, 20, 20, 1]).to(device)
     p_model = PinnModel([2, 20, 20, 1]).to(device)
 
     # Save the model
