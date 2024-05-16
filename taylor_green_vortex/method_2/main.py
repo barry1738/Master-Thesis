@@ -85,39 +85,28 @@ def main():
     u_star_model = PinnModel([2, 20, 20, 1]).to(device)
     v_star_model = PinnModel([2, 20, 20, 1]).to(device)
     phi_model = PinnModel([2, 30, 30, 1]).to(device)
-    u_model = PinnModel([2, 20, 20, 1]).to(device)
-    v_model = PinnModel([2, 20, 20, 1]).to(device)
     p_model = PinnModel([2, 20, 20, 1]).to(device)
 
     # Save the model
     torch.save(u_star_model, pwd + dir_name + "models\\u_star_model.pt")
     torch.save(v_star_model, pwd + dir_name + "models\\v_star_model.pt")
     torch.save(phi_model, pwd + dir_name + "models\\phi_model.pt")
-    torch.save(u_model, pwd + dir_name + "models\\u_model.pt")
-    torch.save(v_model, pwd + dir_name + "models\\v_model.pt")
     torch.save(p_model, pwd + dir_name + "models\\p_model.pt")
 
     # Initialize the weights of the neural network
     u_star_params = u_star_model.state_dict()
     v_star_params = v_star_model.state_dict()
     phi_params = phi_model.state_dict()
-    u_params = u_model.state_dict()
-    v_params = v_model.state_dict()
     p_params = p_model.state_dict()
-    u_params_old = u_params.copy()
-    v_params_old = v_params.copy()
-    p_params_old = p_params.copy()
+    u_star_params_old = u_star_params.copy()
+    v_star_params_old = v_star_params.copy()
+    phi_params_old = phi_params.copy()
 
     # Load the parameters
     # u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_9.pt")
     # v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_9.pt")
     # phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_9.pt")
-    # u_params = torch.load(pwd + dir_name + "params\\u_params\\u_9.pt")
-    # v_params = torch.load(pwd + dir_name + "params\\v_params\\v_9.pt")
     # p_params = torch.load(pwd + dir_name + "params\\p_params\\p_9.pt")
-    # u_params_old = torch.load(pwd + dir_name + "params\\u_params\\u_8.pt")
-    # v_params_old = torch.load(pwd + dir_name + "params\\v_params\\v_8.pt")
-    # p_params_old = torch.load(pwd + dir_name + "params\\p_params\\p_8.pt")
 
     # Print the total number of parameters
     total_params_u_star = u_star_model.num_total_params()
@@ -178,18 +167,43 @@ def main():
 
         # # Predict the intermediate velocity field (u*, v*)
         print("===== Start the prediction step ... =====")
+        u_star_params_old = u_star_params.copy()
+        v_star_params_old = v_star_params.copy()
+
         # Compute the right-hand side of the prediction step
         Rf_u_star, Rf_v_star, Rf_u_star_bd, Rf_v_star_bd = pm.prediction_rhs(
-            (u_model, v_model, p_model), 
-            (u_params, v_params, p_params, u_params_old, v_params_old, p_params_old),
-            (x_inner, x_bd), (y_inner, y_bd),
-            step, device
+            (u_star_model, v_star_model, phi_model, p_model),
+            (
+                u_star_params,
+                v_star_params,
+                phi_params,
+                p_params,
+                u_star_params_old,
+                v_star_params_old,
+                phi_params_old,
+            ),
+            (x_inner, x_bd),
+            (y_inner, y_bd),
+            step,
+            device,
         )
-        Rf_u_star_valid, Rf_v_star_valid, Rf_u_star_bd_valid, Rf_v_star_bd_valid = pm.prediction_rhs(
-            (u_model, v_model, p_model), 
-            (u_params, v_params, p_params, u_params_old, v_params_old, p_params_old),
-            (x_inner_valid, x_bd_valid), (y_inner_valid, y_bd_valid),
-            step, device
+        Rf_u_star_valid, Rf_v_star_valid, Rf_u_star_bd_valid, Rf_v_star_bd_valid = (
+            pm.prediction_rhs(
+                (u_star_model, v_star_model, phi_model, p_model),
+                (
+                    u_star_params,
+                    v_star_params,
+                    phi_params,
+                    p_params,
+                    u_star_params_old,
+                    v_star_params_old,
+                    phi_params_old,
+                ),
+                (x_inner_valid, x_bd_valid),
+                (y_inner_valid, y_bd_valid),
+                step,
+                device,
+            )
         )
 
         # Start training u* and v*
@@ -255,6 +269,8 @@ def main():
 
         # # Project the intermediate velocity field onto the space of divergence-free fields
         print("===== Start the projection step ... =====")
+        phi_params_old = phi_params.copy()
+
         # Compute the right-hand side of the projection step
         Rf_proj = (1.5 / Dt) * (
             mf.predict_dx(u_star_model, u_star_params, x_inner, y_inner)
@@ -306,18 +322,6 @@ def main():
         x_v = torch.vstack((x_inner_valid, x_bd_valid))
         y_v = torch.vstack((y_inner_valid, y_bd_valid))
 
-        Rf_u = mf.predict(u_star_model, u_star_params, x, y) - (
-            2 * Dt / 3
-        ) * mf.predict_dx(phi_model, phi_params, x, y)
-        Rf_u_valid = mf.predict(u_star_model, u_star_params, x_v, y_v) - (
-            2 * Dt / 3
-        ) * mf.predict_dx(phi_model, phi_params, x_v, y_v)
-        Rf_v = mf.predict(v_star_model, v_star_params, x, y) - (
-            2 * Dt / 3
-        ) * mf.predict_dy(phi_model, phi_params, x, y)
-        Rf_v_valid = mf.predict(v_star_model, v_star_params, x_v, y_v) - (
-            2 * Dt / 3
-        ) * mf.predict_dy(phi_model, phi_params, x_v, y_v)
         if step == 2:
             Rf_p = (
                 pm.exact_sol(x, y, (step - 1) * Dt, Re, "p")
@@ -353,29 +357,10 @@ def main():
                 )
             )
 
-        # Update the velocity parameters and pressure parameters
-        u_params_old = u_params.copy()
-        v_params_old = v_params.copy()
-        p_params_old = p_params.copy()
-
-        # Compute the new velocity parameters and pressure parameters
-        u_params, loss_u, loss_u_valid = pm.update_step(u_model, points, (Rf_u, Rf_u_valid), device)
-        v_params, loss_v, loss_v_valid = pm.update_step(v_model, points, (Rf_v, Rf_v_valid), device)
+        # Compute the and pressure parameters
         p_params, loss_p, loss_p_valid = pm.update_step(p_model, points, (Rf_p, Rf_p_valid), device)
 
         # Plot the loss function
-        plot_loss_figure(
-            loss_u, 
-            loss_u_valid, 
-            f"Loss of u, Time = {step * Dt:.3f}", 
-            f"loss_u\\loss_u_{step}.png"
-        )
-        plot_loss_figure(
-            loss_v, 
-            loss_v_valid, 
-            f"Loss of v, Time = {step * Dt:.3f}", 
-            f"loss_v\\loss_v_{step}.png"
-        )
         plot_loss_figure(
             loss_p, 
             loss_p_valid, 
@@ -383,15 +368,8 @@ def main():
             f"loss_p\\loss_p_{step}.png"
         )
         # Save the parameters
-        torch.save(u_params, pwd + dir_name + f"params\\u_params\\u_{step}.pt")
-        torch.save(v_params, pwd + dir_name + f"params\\v_params\\v_{step}.pt")
         torch.save(p_params, pwd + dir_name + f"params\\p_params\\p_{step}.pt")
         print("===== Finish the update step ... =====\n")
-
-        # if torch.allclose(u_params_old["linear_layers.0.weight"], u_params["linear_layers.0.weight"]):
-        #     print("They are the same ...")
-        # else:
-        #     print("They are different ...")
 
         if step % 5 == 0:
             x_plot, y_plot = torch.meshgrid(
@@ -407,8 +385,14 @@ def main():
             exact_u = pm.exact_sol(x_plot, y_plot, step * Dt, Re, "u").cpu().detach().numpy()
             exact_v = pm.exact_sol(x_plot, y_plot, step * Dt, Re, "v").cpu().detach().numpy()
             exact_p = pm.exact_sol(x_plot, y_plot, step * Dt, Re, "p").cpu().detach().numpy()
-            predict_u = mf.predict(u_model, u_params, x_plot, y_plot).cpu().detach().numpy()
-            predict_v = mf.predict(v_model, v_params, x_plot, y_plot).cpu().detach().numpy()
+            predict_u = (
+                mf.predict(u_star_model, u_star_params, x_plot, y_plot) - 
+                (2 * Dt / 3) * mf.predict_dx(phi_model, phi_params, x_plot, y_plot)
+            ).cpu().detach().numpy()
+            predict_v = (
+                mf.predict(v_star_model, v_star_params, x_plot, y_plot) -
+                (2 * Dt / 3) * mf.predict_dy(phi_model, phi_params, x_plot, y_plot)
+            ).cpu().detach().numpy()
             predict_p = mf.predict(p_model, p_params, x_plot, y_plot).cpu().detach().numpy()
             error_u = np.abs(predict_u - exact_u)
             error_v = np.abs(predict_v - exact_v)
@@ -470,7 +454,7 @@ if __name__ == "__main__":
 
     Re = pm.REYNOLDS_NUM
     Dt = pm.TIME_STEP
-    time_end = 5.0
+    time_end = 0.1
 
 
     print(f'Re = {Re}, Dt = {Dt}, time_end = {time_end} ...')
@@ -485,8 +469,6 @@ if __name__ == "__main__":
         os.makedirs(pwd + dir_name + "params\\u_star_params")
         os.makedirs(pwd + dir_name + "params\\v_star_params")
         os.makedirs(pwd + dir_name + "params\\phi_params")
-        os.makedirs(pwd + dir_name + "params\\u_params")
-        os.makedirs(pwd + dir_name + "params\\v_params")
         os.makedirs(pwd + dir_name + "params\\p_params")
         os.makedirs(pwd + dir_name + "figures\\u")
         os.makedirs(pwd + dir_name + "figures\\v")
@@ -495,8 +477,6 @@ if __name__ == "__main__":
         os.makedirs(pwd + dir_name + "figures\\loss\\loss_u_star")
         os.makedirs(pwd + dir_name + "figures\\loss\\loss_v_star")
         os.makedirs(pwd + dir_name + "figures\\loss\\loss_proj")
-        os.makedirs(pwd + dir_name + "figures\\loss\\loss_u")
-        os.makedirs(pwd + dir_name + "figures\\loss\\loss_v")
         os.makedirs(pwd + dir_name + "figures\\loss\\loss_p")
         print("Data directory created...")
     else:
