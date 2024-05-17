@@ -125,8 +125,8 @@ def main():
     # Define the training data
     mesh = pm.CreateSquareMesh()
     # mesh = pm.CreateCircleMesh()
-    x_inner, y_inner = mesh.inner_points(500)
-    x_bd, y_bd = mesh.boundary_points(20)
+    x_inner, y_inner = mesh.inner_points(1000)
+    x_bd, y_bd = mesh.boundary_points(30)
     x_inner_valid, y_inner_valid = mesh.inner_points(10000)
     x_bd_valid, y_bd_valid = mesh.boundary_points(100)
 
@@ -423,13 +423,13 @@ if __name__ == "__main__":
 
     Re = pm.REYNOLDS_NUM
     Dt = pm.TIME_STEP
-    time_end = 5.0
+    time_end = 0.1
 
 
     print(f'Re = {Re}, Dt = {Dt}, time_end = {time_end} ...')
 
     pwd = "C:\\barry_doc\\Training_Data\\"
-    dir_name = "TaylorGreenVortex_Streamfunction_square_5s\\"
+    dir_name = "TaylorGreenVortex_Streamfunction_square\\"
     if not os.path.exists(pwd + dir_name):
         print("Creating data directory...")
         os.makedirs(pwd + dir_name)
