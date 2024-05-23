@@ -1,6 +1,4 @@
 import torch
-from torch.func import functional_call, vjp
-# torch.set_default_dtype(torch.float64)
 
 
 def exact_sol(x, y, t, Re, type):
