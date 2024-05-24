@@ -97,20 +97,20 @@ def main():
     torch.save(p_model, pwd + dir_name + "models\\p_model.pt")
 
     # Initialize the weights of the neural network
-    u_star_params = u_star_model.state_dict()
-    v_star_params = v_star_model.state_dict()
-    phi_params = phi_model.state_dict()
-    psi_params = psi_model.state_dict()
-    p_params = p_model.state_dict()
-    psi_params_old = psi_params.copy()
+    # u_star_params = u_star_model.state_dict()
+    # v_star_params = v_star_model.state_dict()
+    # phi_params = phi_model.state_dict()
+    # psi_params = psi_model.state_dict()
+    # p_params = p_model.state_dict()
+    # psi_params_old = psi_params.copy()
 
     # Load the parameters
-    # u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_230.pt")
-    # v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_230.pt")
-    # phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_230.pt")
-    # psi_params = torch.load(pwd + dir_name + "params\\psi_params\\psi_230.pt")
-    # p_params = torch.load(pwd + dir_name + "params\\p_params\\p_230.pt")
-    # psi_params_old = torch.load(pwd + dir_name + "params\\psi_params\\psi_229.pt")
+    u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_220.pt")
+    v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_220.pt")
+    phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_220.pt")
+    psi_params = torch.load(pwd + dir_name + "params\\psi_params\\psi_220.pt")
+    p_params = torch.load(pwd + dir_name + "params\\p_params\\p_220.pt")
+    psi_params_old = torch.load(pwd + dir_name + "params\\psi_params\\psi_219.pt")
 
     # Print the total number of parameters
     total_params_u_star = u_star_model.num_total_params()
@@ -123,8 +123,10 @@ def main():
     print(f"Total number of psi parameters: {total_params_psi}")
 
     # Define the training data
-    mesh = pm.CreateSquareMesh()
+    # mesh = pm.CreateSquareMesh()
     # mesh = pm.CreateCircleMesh()
+    # mesh = pm.CreateEllipseMesh()
+    mesh = pm.CreateLshapeMesh()
     x_inner, y_inner = mesh.inner_points(1000)
     x_bd, y_bd = mesh.boundary_points(30)
     x_inner_valid, y_inner_valid = mesh.inner_points(10000)
@@ -149,8 +151,8 @@ def main():
 
     points = (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid)
 
-    # for step in range(231, int(time_end / Dt) + 1):
-    for step in range(2, int(time_end / Dt) + 1):
+    for step in range(221, int(time_end / Dt) + 1):
+    # for step in range(2, int(time_end / Dt) + 1):
         print(f"Step {step}, time = {Dt * step:.3f} ...")
         print("=====================================")
 
@@ -193,7 +195,7 @@ def main():
             else:
                 u_star_overfitting = False
 
-        print("Start training v* ...")
+        print("\nStart training v* ...")
         while v_star_overfitting:
             v_star_params, loss_v_star, loss_v_star_valid = pm.prediction_step(
                 v_star_model, 
@@ -341,20 +343,15 @@ def main():
         torch.save(p_params, pwd + dir_name + f"params\\p_params\\p_{step}.pt")
         print("===== Finish the update step ... =====\n")
 
-        # if torch.allclose(u_params_old["linear_layers.0.weight"], u_params["linear_layers.0.weight"]):
-        #     print("They are the same ...")
-        # else:
-        #     print("They are different ...")
-
-        if step % 1 == 0:
-            x_plot, y_plot = torch.meshgrid(
-                torch.linspace(0, 1, 200), torch.linspace(0, 1, 200), indexing="xy"
-            )
-            x_plot, y_plot = x_plot.reshape(-1, 1), y_plot.reshape(-1, 1)
-            # x_plot_inner, y_plot_inner = mesh.inner_points(50000)
-            # x_plot_bd, y_plot_bd = mesh.boundary_points(5000)
-            # x_plot = torch.vstack((x_plot_inner, x_plot_bd))
-            # y_plot = torch.vstack((y_plot_inner, y_plot_bd))
+        if step % 10 == 0:
+            # x_plot, y_plot = torch.meshgrid(
+            #     torch.linspace(0, 1, 200), torch.linspace(0, 1, 200), indexing="xy"
+            # )
+            # x_plot, y_plot = x_plot.reshape(-1, 1), y_plot.reshape(-1, 1)
+            x_plot_inner, y_plot_inner = mesh.inner_points(50000)
+            x_plot_bd, y_plot_bd = mesh.boundary_points(5000)
+            x_plot = torch.vstack((x_plot_inner, x_plot_bd))
+            y_plot = torch.vstack((y_plot_inner, y_plot_bd))
             x_plot, y_plot = x_plot.to(device), y_plot.to(device)
             # Plot the velocity field and pressure field
             exact_u = pm.exact_sol(x_plot, y_plot, step * Dt, Re, "u").cpu().detach().numpy()
@@ -423,13 +420,13 @@ if __name__ == "__main__":
 
     Re = pm.REYNOLDS_NUM
     Dt = pm.TIME_STEP
-    time_end = 0.1
+    time_end = 5.0
 
 
     print(f'Re = {Re}, Dt = {Dt}, time_end = {time_end} ...')
 
     pwd = "C:\\barry_doc\\Training_Data\\"
-    dir_name = "TaylorGreenVortex_Streamfunction_square\\"
+    dir_name = "TaylorGreenVortex_Streamfunction_Lshape\\"
     if not os.path.exists(pwd + dir_name):
         print("Creating data directory...")
         os.makedirs(pwd + dir_name)

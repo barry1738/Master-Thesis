@@ -13,6 +13,8 @@ TIME_STEP = projection_module.config.TIME_STEP
 # Mesh Generators
 CreateSquareMesh = projection_module.mesh_generator.CreateSquareMesh
 CreateCircleMesh = projection_module.mesh_generator.CreateCircleMesh
+CreateEllipseMesh = projection_module.mesh_generator.CreateEllipseMesh
+CreateLshapeMesh = projection_module.mesh_generator.CreateLshapeMesh
 
 exact_sol = projection_module.utilities.exact_sol
 qr_decomposition = projection_module.utilities.qr_decomposition
