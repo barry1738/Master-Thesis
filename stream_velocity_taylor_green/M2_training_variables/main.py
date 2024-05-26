@@ -105,12 +105,12 @@ def main():
     # psi_params_old = psi_params.copy()
 
     # Load the parameters
-    u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_20.pt")
-    v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_20.pt")
-    phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_20.pt")
-    psi_params = torch.load(pwd + dir_name + "params\\psi_params\\psi_20.pt")
-    p_params = torch.load(pwd + dir_name + "params\\p_params\\p_20.pt")
-    psi_params_old = torch.load(pwd + dir_name + "params\\psi_params\\psi_19.pt")
+    u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_30.pt")
+    v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_30.pt")
+    phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_30.pt")
+    psi_params = torch.load(pwd + dir_name + "params\\psi_params\\psi_30.pt")
+    p_params = torch.load(pwd + dir_name + "params\\p_params\\p_30.pt")
+    psi_params_old = torch.load(pwd + dir_name + "params\\psi_params\\psi_29.pt")
 
     # Print the total number of parameters
     total_params_u_star = u_star_model.num_total_params()
@@ -162,7 +162,7 @@ def main():
     y_plot = torch.vstack((y_plot_inner, y_plot_bd))
     x_plot, y_plot = x_plot.to(device), y_plot.to(device)
 
-    for step in range(21, int(time_end / Dt) + 1):
+    for step in range(31, int(time_end / Dt) + 1):
     # for step in range(2, int(time_end / Dt) + 1):
         print(f"Step {step}, time = {Dt * step:.3f} ...")
         print("=====================================")
