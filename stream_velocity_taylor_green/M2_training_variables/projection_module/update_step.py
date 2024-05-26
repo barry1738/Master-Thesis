@@ -12,7 +12,7 @@ def update_step(model, points, rhs_vec, device):
         """Initialize the weights of the neural network."""
         if isinstance(model, nn.Linear):
             # nn.init.xavier_uniform_(model.weight.data, gain=5)
-            nn.init.xavier_normal_(model.weight.data, gain=3)
+            nn.init.xavier_normal_(model.weight.data, gain=10)
 
     model.apply(weights_init)
     params = model.state_dict()
@@ -94,11 +94,15 @@ def update_step(model, points, rhs_vec, device):
             print(f"iter = {iter}, loss = {loss.item():.2e}, mu = {mu:.1e}")
             break
 
+        elif iter > 0 and savedloss[iter] == savedloss[iter - 1]:
+            print("Failed training. ...")
+            break
+
         # Update the parameter mu
         if iter % 3 == 0:
             if savedloss[iter] > savedloss[iter - 1]:
                 mu = min(2 * mu, 1e8)
             else:
-                mu = max(mu / 3, 1e-11)
+                mu = max(mu / 2.5, 1e-11)
 
     return params, savedloss, savedloss_valid

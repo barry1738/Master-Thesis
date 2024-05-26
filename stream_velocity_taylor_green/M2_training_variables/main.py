@@ -105,12 +105,12 @@ def main():
     # psi_params_old = psi_params.copy()
 
     # Load the parameters
-    u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_220.pt")
-    v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_220.pt")
-    phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_220.pt")
-    psi_params = torch.load(pwd + dir_name + "params\\psi_params\\psi_220.pt")
-    p_params = torch.load(pwd + dir_name + "params\\p_params\\p_220.pt")
-    psi_params_old = torch.load(pwd + dir_name + "params\\psi_params\\psi_219.pt")
+    u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_20.pt")
+    v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_20.pt")
+    phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_20.pt")
+    psi_params = torch.load(pwd + dir_name + "params\\psi_params\\psi_20.pt")
+    p_params = torch.load(pwd + dir_name + "params\\p_params\\p_20.pt")
+    psi_params_old = torch.load(pwd + dir_name + "params\\psi_params\\psi_19.pt")
 
     # Print the total number of parameters
     total_params_u_star = u_star_model.num_total_params()
@@ -125,12 +125,12 @@ def main():
     # Define the training data
     # mesh = pm.CreateSquareMesh()
     # mesh = pm.CreateCircleMesh()
-    # mesh = pm.CreateEllipseMesh()
-    mesh = pm.CreateLshapeMesh()
-    x_inner, y_inner = mesh.inner_points(1000)
-    x_bd, y_bd = mesh.boundary_points(30)
+    mesh = pm.CreateEllipseMesh(xc=0, yc=0, a=3, b=1)
+    # mesh = pm.CreateLshapeMesh()
+    x_inner, y_inner = mesh.inner_points(1500)
+    x_bd, y_bd = mesh.boundary_points(300)
     x_inner_valid, y_inner_valid = mesh.inner_points(10000)
-    x_bd_valid, y_bd_valid = mesh.boundary_points(100)
+    x_bd_valid, y_bd_valid = mesh.boundary_points(1000)
 
     # Plot the training data
     fig, ax = plt.subplots(layout="constrained")
@@ -151,7 +151,18 @@ def main():
 
     points = (x_inner, y_inner, x_bd, y_bd, x_inner_valid, y_inner_valid, x_bd_valid, y_bd_valid)
 
-    for step in range(221, int(time_end / Dt) + 1):
+    # Define the plot data
+    # x_plot, y_plot = torch.meshgrid(
+    #     torch.linspace(0, 1, 200), torch.linspace(0, 1, 200), indexing="xy"
+    # )
+    # x_plot, y_plot = x_plot.reshape(-1, 1), y_plot.reshape(-1, 1)
+    x_plot_inner, y_plot_inner = mesh.inner_points(50000)
+    x_plot_bd, y_plot_bd = mesh.boundary_points(1000)
+    x_plot = torch.vstack((x_plot_inner, x_plot_bd))
+    y_plot = torch.vstack((y_plot_inner, y_plot_bd))
+    x_plot, y_plot = x_plot.to(device), y_plot.to(device)
+
+    for step in range(21, int(time_end / Dt) + 1):
     # for step in range(2, int(time_end / Dt) + 1):
         print(f"Step {step}, time = {Dt * step:.3f} ...")
         print("=====================================")
@@ -323,13 +334,29 @@ def main():
             )
 
         # Compute the new velocity parameters and pressure parameters
-        p_params, loss_p, loss_p_valid = pm.update_step(p_model, points, (Rf_p, Rf_p_valid), device)
+        update_overfitting = True
+        while update_overfitting:
+            p_params, loss_p, loss_p_valid = pm.update_step(
+                p_model, points, (Rf_p, Rf_p_valid), device
+            )
 
-        # # Pin p parameters
+            if loss_p_valid[-1] / loss_p[-1] > 10.0:
+                update_overfitting = True
+                print("Projection overfitting ...")
+            elif loss_p[-1] / loss_p_valid[-1] > 10.0:
+                update_overfitting = True
+                print("Projection overfitting ...")
+            elif loss_p[-1] > 1.0e-5:
+                update_overfitting = True
+                print("Projection overfitting ...")
+            else:
+                update_overfitting = False
+
+        # Pin p parameters
         # p_params["linear_layers.2.bias"] += (
-        #     pm.exact_sol(torch.tensor([[0.5]]), torch.tensor([[0.5]]), step * Dt, Re, "p")
+        #     pm.exact_sol(torch.tensor([[0.0]], device=device), torch.tensor([[0.0]], device=device), step * Dt, Re, "p")
         #     - 
-        #     mf.predict(p_model, p_params, torch.tensor([[0.5]]), torch.tensor([[0.5]]))
+        #     mf.predict(p_model, p_params, torch.tensor([[0.0]], device=device), torch.tensor([[0.0]], device=device))
         # ).reshape(-1)
 
         # Plot the loss function
@@ -344,15 +371,6 @@ def main():
         print("===== Finish the update step ... =====\n")
 
         if step % 10 == 0:
-            # x_plot, y_plot = torch.meshgrid(
-            #     torch.linspace(0, 1, 200), torch.linspace(0, 1, 200), indexing="xy"
-            # )
-            # x_plot, y_plot = x_plot.reshape(-1, 1), y_plot.reshape(-1, 1)
-            x_plot_inner, y_plot_inner = mesh.inner_points(50000)
-            x_plot_bd, y_plot_bd = mesh.boundary_points(5000)
-            x_plot = torch.vstack((x_plot_inner, x_plot_bd))
-            y_plot = torch.vstack((y_plot_inner, y_plot_bd))
-            x_plot, y_plot = x_plot.to(device), y_plot.to(device)
             # Plot the velocity field and pressure field
             exact_u = pm.exact_sol(x_plot, y_plot, step * Dt, Re, "u").cpu().detach().numpy()
             exact_v = pm.exact_sol(x_plot, y_plot, step * Dt, Re, "v").cpu().detach().numpy()
@@ -426,7 +444,7 @@ if __name__ == "__main__":
     print(f'Re = {Re}, Dt = {Dt}, time_end = {time_end} ...')
 
     pwd = "C:\\barry_doc\\Training_Data\\"
-    dir_name = "TaylorGreenVortex_Streamfunction_Lshape\\"
+    dir_name = "TaylorGreenVortex_Streamfunction_ellipse\\"
     if not os.path.exists(pwd + dir_name):
         print("Creating data directory...")
         os.makedirs(pwd + dir_name)
