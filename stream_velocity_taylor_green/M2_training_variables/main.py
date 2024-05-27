@@ -97,20 +97,20 @@ def main():
     torch.save(p_model, pwd + dir_name + "models\\p_model.pt")
 
     # Initialize the weights of the neural network
-    # u_star_params = u_star_model.state_dict()
-    # v_star_params = v_star_model.state_dict()
-    # phi_params = phi_model.state_dict()
-    # psi_params = psi_model.state_dict()
-    # p_params = p_model.state_dict()
-    # psi_params_old = psi_params.copy()
+    u_star_params = u_star_model.state_dict()
+    v_star_params = v_star_model.state_dict()
+    phi_params = phi_model.state_dict()
+    psi_params = psi_model.state_dict()
+    p_params = p_model.state_dict()
+    psi_params_old = psi_params.copy()
 
     # Load the parameters
-    u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_30.pt")
-    v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_30.pt")
-    phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_30.pt")
-    psi_params = torch.load(pwd + dir_name + "params\\psi_params\\psi_30.pt")
-    p_params = torch.load(pwd + dir_name + "params\\p_params\\p_30.pt")
-    psi_params_old = torch.load(pwd + dir_name + "params\\psi_params\\psi_29.pt")
+    # u_star_params = torch.load(pwd + dir_name + "params\\u_star_params\\u_star_80.pt")
+    # v_star_params = torch.load(pwd + dir_name + "params\\v_star_params\\v_star_80.pt")
+    # phi_params = torch.load(pwd + dir_name + "params\\phi_params\\phi_80.pt")
+    # psi_params = torch.load(pwd + dir_name + "params\\psi_params\\psi_80.pt")
+    # p_params = torch.load(pwd + dir_name + "params\\p_params\\p_80.pt")
+    # psi_params_old = torch.load(pwd + dir_name + "params\\psi_params\\psi_79.pt")
 
     # Print the total number of parameters
     total_params_u_star = u_star_model.num_total_params()
@@ -125,10 +125,10 @@ def main():
     # Define the training data
     # mesh = pm.CreateSquareMesh()
     # mesh = pm.CreateCircleMesh()
-    mesh = pm.CreateEllipseMesh(xc=0, yc=0, a=3, b=1)
+    mesh = pm.CreateEllipseMesh(xc=0, yc=0, a=2, b=0.5)
     # mesh = pm.CreateLshapeMesh()
-    x_inner, y_inner = mesh.inner_points(1500)
-    x_bd, y_bd = mesh.boundary_points(300)
+    x_inner, y_inner = mesh.inner_points(1000)
+    x_bd, y_bd = mesh.boundary_points(100)
     x_inner_valid, y_inner_valid = mesh.inner_points(10000)
     x_bd_valid, y_bd_valid = mesh.boundary_points(1000)
 
@@ -162,8 +162,8 @@ def main():
     y_plot = torch.vstack((y_plot_inner, y_plot_bd))
     x_plot, y_plot = x_plot.to(device), y_plot.to(device)
 
-    for step in range(31, int(time_end / Dt) + 1):
-    # for step in range(2, int(time_end / Dt) + 1):
+    # for step in range(81, int(time_end / Dt) + 1):
+    for step in range(2, int(time_end / Dt) + 1):
         print(f"Step {step}, time = {Dt * step:.3f} ...")
         print("=====================================")
 

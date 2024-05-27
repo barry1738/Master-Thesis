@@ -13,7 +13,7 @@ def prediction_step(model, points, rhs_vec, device):
         """Initialize the weights of the neural network."""
         if isinstance(model, nn.Linear):
             # nn.init.xavier_uniform_(model.weight.data, gain=10)
-            nn.init.xavier_normal_(model.weight.data, gain=10)
+            nn.init.xavier_normal_(model.weight.data, gain=5)
 
     model.apply(weights_init)
     params = model.state_dict()
