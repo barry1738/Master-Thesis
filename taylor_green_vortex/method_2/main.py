@@ -55,10 +55,10 @@ def weights_init(model):
 def plot_loss_figure(training_loss, test_loss, title, file_name):
     """Plot the loss function"""
     fig, ax = plt.subplots(layout="constrained")
-    ax.semilogy(training_loss, "k-", label="training loss")
-    ax.semilogy(test_loss, "r--", label="test loss")
-    ax.set_xlabel("Iteration")
-    ax.set_ylabel("Loss")
+    ax.semilogy(training_loss, "k-", label=r"training loss")
+    ax.semilogy(test_loss, "r--", label=r"test loss")
+    ax.set_xlabel(r"Iteration")
+    ax.set_ylabel(r"Loss")
     ax.set_title(title)
     ax.legend()
     # fig.tight_layout()
@@ -253,13 +253,13 @@ def main():
         plot_loss_figure(
             loss_u_star,
             loss_u_star_valid,
-            f"Loss of u*, Time = {step * Dt:.3f}",
+            rf"Loss of $u^*$, Time = {step * Dt:.3f}",
             f"loss_u_star\\loss_u_star_{step}.png",
         )
         plot_loss_figure(
             loss_v_star,
             loss_v_star_valid,
-            f"Loss of v*, Time = {step * Dt:.3f}",
+            rf"Loss of $v^*$, Time = {step * Dt:.3f}",
             f"loss_v_star\\loss_v_star_{step}.png",
         )
         # Save the parameters
@@ -307,7 +307,7 @@ def main():
         plot_loss_figure(
             loss_proj,
             loss_proj_valid,
-            f"Loss of projection step, Time = {step * Dt:.3f}",
+            rf"Loss of projection step, Time = {step * Dt:.3f}",
             f"loss_proj\\loss_proj_{step}.png",
         )
         # Save the parameters
@@ -450,7 +450,14 @@ if __name__ == "__main__":
     print(f"Using {device} device")
 
     # Set the font size in figures
-    plt.rcParams.update({"font.size": 12})
+    # plt.rcParams.update({"font.size": 12})
+    plt.rcParams.update(
+        {
+            "font.size": 16,
+            "text.usetex": True,
+            "font.family": "serif",
+        }
+    )
 
     Re = pm.REYNOLDS_NUM
     Dt = pm.TIME_STEP
