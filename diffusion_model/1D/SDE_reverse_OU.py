@@ -46,7 +46,6 @@ Xh_0 = np.zeros((N, M + 1))
 Xh_0[:, -1] = X_0
 
 for i in range(M, 0, -1):
-    print(i)
     ti = i * dt
     Xh_0[:, i-1] = Xh_0[:, i] \
                  + (f(Xh_0[:, i],ti) - g(Xh_0[:, i],ti)**2 * s(Xh_0[:, i],ti)) * (-dt) \
