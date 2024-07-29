@@ -1,12 +1,12 @@
-'''
+"""
 2D forward stochastic process
 dXt  = SIGMA^(1/2)*dWt
-X(0) = X0 (const.)
-------------------------- 
-mean = X0
-Cov  = t*SIGMA
+X(0) = X0 ~ N(mu_0,SIGMA_0)
 -------------------------
-'''
+mean = mu_0
+Cov  = SIGMA_0 + t*SIGMA
+-------------------------
+"""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -26,12 +26,14 @@ SIGMA = V @ np.diag(S**2) @ V.T
 SIGMA_half = V @ np.diag(S) @ V.T
 
 # ... initial condition ...
-X_0 = np.array([[1], [2]])
-Xh_0 = np.zeros((2, N)) + X_0
+mu_0 = np.array([[1], [2]])
+SIGMA_0 = np.random.randn(2, 2)
+SIGMA_0 = SIGMA_0.T @ SIGMA_0
+Xh_0 = np.random.multivariate_normal(mu_0.flatten(), SIGMA_0, N).T
 
 # ... exact mean and covariance at t = T ...
-mu_ex = X_0
-cov_ex = SIGMA * T
+mu_ex = mu_0
+cov_ex = SIGMA_0 + SIGMA * T
 
 # SDE setup
 f = lambda x, t: 0
