@@ -18,7 +18,7 @@ from torch.func import functional_call, vmap, jacrev
 
 torch.set_default_dtype(torch.float64)
 device = "cuda" if torch.cuda.is_available() else "cpu"
-# device = "cpu"
+device = "cpu"
 print("device = ", device)
 
 
@@ -96,7 +96,7 @@ def main():
     # ... run SDE to generate Xt ...
     # X0 = mu_0 + sigma_0 * np.random.randn(m, 1)
     X0 = np.random.normal(mu_0, sigma_0, (m, 1))
-    t = np.sort(np.append(np.random.rand(m - 1, 1), T)).reshape(-1, 1)
+    t = np.sort(np.append(T * np.random.rand(m - 1), T)).reshape(-1, 1)
     noise = np.random.randn(m, 1)
     Xt = mu(X0, t) + sigma(t) * noise
     sigmaT = sigma(t)
@@ -114,16 +114,16 @@ def main():
     max_iter = 1000  # maximum number of iterations
     tol = 1e-3  # tolerance
     opt = "Cholesky"  # "Cholesky" or "QR"
-    eta = 1E0  # initial damping parameter
+    eta = 1E1  # initial damping parameter
     loss = torch.zeros(max_iter)
 
     # Move data to device
     xin = torch.tensor(xin, device=device)
     yin = torch.tensor(yin, device=device)
     sigmaT = torch.tensor(sigmaT, device=device)
-    print(f'xin: {xin.shape}')
-    print(f'yin: {yin.shape}')
-    print(f'sigmaT: {sigmaT.shape}')
+    # print(f'xin: {xin.shape}')
+    # print(f'yin: {yin.shape}')
+    # print(f'sigmaT: {sigmaT.shape}')
 
     # Training
     for epoch in range(max_iter):
@@ -183,7 +183,7 @@ def main():
             break
 
         # ... Display the cost function ...
-        if epoch % 10 == 0:
+        if epoch % 100 == 0:
             print(f"Epoch: {epoch}, Loss: {loss[epoch].item():.4e}, eta: {eta:.2e}")
 
         # ... resampling ...
@@ -191,7 +191,7 @@ def main():
             # ... Generate new training data (Xt, t) ...
             # ... run SDE to generate Xt ...
             X0 = mu_0 + sigma_0 * np.random.randn(m, 1)
-            t = np.sort(np.append(np.random.rand(m - 1, 1), T)).reshape(-1, 1)
+            t = np.sort(np.append(T * np.random.rand(m - 1), T)).reshape(-1, 1)
             noise = np.random.randn(m, 1)
             Xt = mu(X0, t) + sigma(t) * noise
             sigmaT = sigma(t)
@@ -216,20 +216,37 @@ def main():
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Loss")
     ax.legend()
-    plt.show()
+    # plt.show()
 
 
     # Testing and Output
     # ... Generate testing data (Xt, t) ...
     # ... run SDE to generate Xt ...
     X0 = mu_0 + sigma_0 * np.random.randn(m_test, 1)
-    t = np.sort(np.append(np.random.rand(m_test - 1, 1), T)).reshape(-1, 1)
+    t = np.sort(np.append(T * np.random.rand(m_test - 1), T)).reshape(-1, 1)
     noise = np.random.randn(m_test, 1)
     Xt = mu(X0, t) + sigma(t) * noise
     # ... test points ...
     x_test = np.hstack((Xt, t))
     y_test = functional_call(model, wb_params, torch.tensor(x_test, device=device))
     s_test = score_exact(x_test[:, 0], x_test[:, 1]).reshape(-1, 1)
+
+    fig, axs = plt.subplots(1, 2)
+    sca1 = axs[0].scatter(
+        x_test[:, 0],
+        x_test[:, 1],
+        c=y_test.cpu().detach().numpy(),
+        s=5,
+        cmap="coolwarm",
+    )
+    axs[0].set_title(r"$score_N(X_t,t)$")
+    axs[0].set_ylim([0, T])
+    fig.colorbar(sca1, ax=axs[0])
+    sca2 = axs[1].scatter(x_test[:, 0], x_test[:, 1], c=s_test, s=5, cmap="coolwarm")
+    axs[1].set_title(r"$score(X_t,t)$")
+    axs[1].set_ylim([0, T])
+    fig.colorbar(sca2, ax=axs[1])
+    plt.show()
 
 
 if __name__ == "__main__":
