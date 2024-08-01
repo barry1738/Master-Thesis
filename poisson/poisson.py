@@ -172,7 +172,7 @@ def main():
     # for key, value in u_params.items():
     #     print(f"{key} = {value}")
 
-    u_params_copy = model.state_dict().copy()
+    # u_params_copy = model.state_dict().copy()
 
     # 10 times the initial parameters
     u_params_flatten = nn.utils.parameters_to_vector(u_params.values()) * 10.0
