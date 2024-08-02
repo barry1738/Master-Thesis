@@ -37,8 +37,8 @@ class Model(nn.Module):
         self.ln_out = nn.Linear(h_dim[-1], out_dim, bias=True)  # bias=True or False?
 
         # activation function
-        # self.act = nn.Sigmoid()
-        self.act = nn.LogSigmoid()
+        self.act = nn.Sigmoid()
+        # self.act = nn.LogSigmoid()
 
     def forward(self, x):
         input = x
@@ -52,7 +52,7 @@ class Model(nn.Module):
 def weights_init(model):
     """Initialize the weights of the neural network."""
     if isinstance(model, nn.Linear):
-        # nn.init.xavier_uniform_(model.weight.data, gain=5)
+        # nn.init.xavier_uniform_(model.weight.data, gain=1)
         nn.init.xavier_normal_(model.weight.data, gain=1)
 
 
@@ -62,8 +62,12 @@ def cost_function(model, params, xin, yin, sigmaT):
 
 
 def main():
+    # Dimension
+    dim = 2
+    print(f"* Dimension: {dim}")
+
     # Network parameters
-    model = Model(3, [10], 2).to(device)
+    model = Model(dim + 1, [10], dim).to(device)
     # Initialize the weights
     model.apply(weights_init)
     # Get the initial weights and biases
@@ -75,7 +79,7 @@ def main():
 
     # SDE parameters
     T = 10.0
-    mu_0 = np.array([1.0, 2.0])
+    mu_0 = np.arange(3.0,  3.0 + dim)
     sigma_0 = 1.0
     beta = 3.0
 
@@ -94,10 +98,10 @@ def main():
     # Problem setup
     # ... Generate training data (Xt, t) ...
     # ... run SDE to generate Xt ...
-    # X0 = mu_0 + sigma_0 * np.random.randn(m, 2)
-    X0 = np.random.normal(mu_0, sigma_0, (m, 2))
+    # X0 = mu_0 + sigma_0 * np.random.randn(m, dim)
+    X0 = np.random.normal(mu_0, sigma_0, (m, dim))
     t = np.sort(np.append(T * np.random.rand(m - 1), T)).reshape(-1, 1)
-    noise = np.random.randn(m, 2)
+    noise = np.random.randn(m, dim)
     Xt = mu(X0, t) + sigma(t) * noise
     sigmaT = sigma(t)
     # ... training points ...
@@ -107,8 +111,8 @@ def main():
 
     # Display network parameters
     totWb = sum(p.numel() for p in model.parameters())
-    print(f"Trainig points: {xin.shape[0]}")
-    print(f"# of Parameters: {totWb}")
+    print(f"* Trainig points: {xin.shape[0]}")
+    print(f"* # of Parameters: {totWb}")
 
     # Levenberg-Marquardt algorithm parameters
     max_iter = 1000  # maximum number of iterations
@@ -116,14 +120,15 @@ def main():
     opt = "Cholesky"  # "Cholesky" or "QR"
     eta = 1e1  # initial damping parameter
     loss = torch.zeros(max_iter)
+    print(f"* Optimization method: {opt}")
 
     # Move data to device
     xin = torch.tensor(xin, device=device)
     yin = torch.tensor(yin, device=device)
     sigmaT = torch.tensor(sigmaT, device=device)
-    print(f'xin: {xin.shape}')
-    print(f'yin: {yin.shape}')
-    print(f'sigmaT: {sigmaT.shape}')
+    # print(f'xin: {xin.shape}')
+    # print(f'yin: {yin.shape}')
+    # print(f'sigmaT: {sigmaT.shape}')
 
     # Training
     for epoch in range(max_iter):
@@ -134,11 +139,8 @@ def main():
             out_dims=0,
         )(model, wb_params, xin, yin, sigmaT)
 
-        # for key, value in jac_dict.items():
-        #     print(f"{key} = {value.shape}")
-
         # Stack the Jacobian matrices
-        J = -torch.hstack([v.view(m * 2, -1) for v in jac_dict.values()])
+        J = -torch.hstack([v.view(m * dim, -1) for v in jac_dict.values()])
         # print(f"J.shape = {J.shape}")
 
         # ... Computation of the vector cost function ...
@@ -146,8 +148,8 @@ def main():
         # print(f"res.shape = {res.shape}")
 
         # ... Divide the Jacobian matrix and vector cost function by sqrt(N) ...
-        J = J / torch.sqrt(torch.tensor(xin.size(0)))
-        res = res / torch.sqrt(torch.tensor(xin.size(0)))
+        J = J / torch.sqrt(torch.tensor(m * dim))
+        res = res / torch.sqrt(torch.tensor(m * dim))
 
         # ... Update p_{k+1} using LM algorithm ...
         if opt == "Cholesky":
@@ -174,12 +176,12 @@ def main():
 
         # ... Compute the cost function ...
         res = cost_function(model, wb_params, xin, yin, sigmaT).reshape(-1, 1)
-        loss[epoch] = torch.sum(res**2) / xin.size(0)
+        loss[epoch] = torch.sum(res**2) / (m * dim)
 
         # ... Update the damping parameter ...
-        if epoch % 5 == 0:
+        if epoch % 3 == 0:
             if loss[epoch] < loss[epoch - 1]:
-                eta = max(eta / 1.5, 1e-9)
+                eta = max(eta / 1.3, 1e-9)
             else:
                 eta = min(eta * 2, 1e8)
 
@@ -195,9 +197,9 @@ def main():
         if epoch % 10 == 0:
             # ... Generate new training data (Xt, t) ...
             # ... run SDE to generate Xt ...
-            X0 = mu_0 + sigma_0 * np.random.randn(m, 2)
+            X0 = mu_0 + sigma_0 * np.random.randn(m, dim)
             t = np.sort(np.append(T * np.random.rand(m - 1), T)).reshape(-1, 1)
-            noise = np.random.randn(m, 2)
+            noise = np.random.randn(m, dim)
             Xt = mu(X0, t) + sigma(t) * noise
             sigmaT = sigma(t)
             # ... training points ...
@@ -221,66 +223,86 @@ def main():
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Loss")
     ax.legend()
-    plt.show()
+    # plt.show()
 
     # Testing and Output
     # ... Generate testing data (Xt, t) ...
     # ... run SDE to generate Xt ...
-    X0 = mu_0 + sigma_0 * np.random.randn(m_test, 2)
+    X0 = mu_0 + sigma_0 * np.random.randn(m_test, dim)
     t = np.sort(np.append(T * np.random.rand(m_test - 1), T)).reshape(-1, 1)
-    noise = np.random.randn(m_test, 2)
+    noise = np.random.randn(m_test, dim)
     Xt = mu(X0, t) + sigma(t) * noise
     # ... test points ...
     x_test = np.hstack((Xt, t))
     y_test = functional_call(model, wb_params, torch.tensor(x_test, device=device))
     s_test = score_exact(Xt, t)
 
-    fig, axs = plt.subplots(2, 2)
-    sca1 = axs[0][0].scatter(
-        x_test[:, 0],
-        x_test[:, -1],
-        c=y_test[:, 0].cpu().detach().numpy(),
-        s=5,
-        cmap="coolwarm",
-    )
-    axs[0][0].set_title(r"$score_N(X_t,t)$ x-dir")
-    axs[0][0].set_xlabel("X")
-    axs[0][0].set_ylabel("t")
-    axs[0][0].set_ylim([0, T])
-    fig.colorbar(sca1, ax=axs[0][0])
 
-    sca2 = axs[0][1].scatter(
-        x_test[:, 0], x_test[:, -1], c=s_test[:, 0], s=5, cmap="coolwarm"
-    )
-    axs[0][1].set_title(r"$score(X_t,t)$ x-dir")
-    axs[0][1].set_xlabel("X")
-    axs[0][1].set_ylabel("t")
-    axs[0][1].set_ylim([0, T])
-    fig.colorbar(sca2, ax=axs[0][1])
+    # Plot the results
+    if dim == 1:
+        fig, axs = plt.subplots(1, 2)
+        sca1 = axs[0].scatter(
+            x_test[:, 0],
+            x_test[:, 1],
+            c=y_test.cpu().detach().numpy(),
+            s=5,
+            cmap="coolwarm",
+        )
+        axs[0].set_title(r"$score_N(X_t,t)$")
+        axs[0].set_ylim([0, T])
+        fig.colorbar(sca1, ax=axs[0])
+        sca2 = axs[1].scatter(x_test[:, 0], x_test[:, 1], c=s_test, s=5, cmap="coolwarm")
+        axs[1].set_title(r"$score(X_t,t)$")
+        axs[1].set_ylim([0, T])
+        fig.colorbar(sca2, ax=axs[1])
+        plt.show()
 
-    sca3 = axs[1][0].scatter(
-        x_test[:, 1],
-        x_test[:, -1],
-        c=y_test[:, 1].cpu().detach().numpy(),
-        s=5,
-        cmap="coolwarm",
-    )
-    axs[1][0].set_title(r"$score_N(X_t,t)$ y-dir")
-    axs[1][0].set_xlabel("Y")
-    axs[1][0].set_ylabel("t")
-    axs[1][0].set_ylim([0, T])
-    fig.colorbar(sca3, ax=axs[1][0])
+    elif dim == 2:
+        fig, axs = plt.subplots(2, 2)
+        sca1 = axs[0][0].scatter(
+            x_test[:, 0],
+            x_test[:, -1],
+            c=y_test[:, 0].cpu().detach().numpy(),
+            s=5,
+            cmap="coolwarm",
+        )
+        axs[0][0].set_title(r"$score_N(X_t,t)$ x-dir")
+        axs[0][0].set_xlabel("X")
+        axs[0][0].set_ylabel("t")
+        axs[0][0].set_ylim([0, T])
+        fig.colorbar(sca1, ax=axs[0][0])
 
-    sca4 = axs[1][1].scatter(
-        x_test[:, 1], x_test[:, -1], c=s_test[:, 1], s=5, cmap="coolwarm"
-    )
-    axs[1][1].set_title(r"$score(X_t,t)$ y-dir")
-    axs[1][1].set_xlabel("Y")
-    axs[1][1].set_ylabel("t")
-    axs[1][1].set_ylim([0, T])
-    fig.colorbar(sca4, ax=axs[1][1])
+        sca2 = axs[0][1].scatter(
+            x_test[:, 0], x_test[:, -1], c=s_test[:, 0], s=5, cmap="coolwarm"
+        )
+        axs[0][1].set_title(r"$score(X_t,t)$ x-dir")
+        axs[0][1].set_xlabel("X")
+        axs[0][1].set_ylabel("t")
+        axs[0][1].set_ylim([0, T])
+        fig.colorbar(sca2, ax=axs[0][1])
 
-    plt.show()
+        sca3 = axs[1][0].scatter(
+            x_test[:, 1],
+            x_test[:, -1],
+            c=y_test[:, 1].cpu().detach().numpy(),
+            s=5,
+            cmap="coolwarm",
+        )
+        axs[1][0].set_title(r"$score_N(X_t,t)$ y-dir")
+        axs[1][0].set_xlabel("Y")
+        axs[1][0].set_ylabel("t")
+        axs[1][0].set_ylim([0, T])
+        fig.colorbar(sca3, ax=axs[1][0])
+
+        sca4 = axs[1][1].scatter(
+            x_test[:, 1], x_test[:, -1], c=s_test[:, 1], s=5, cmap="coolwarm"
+        )
+        axs[1][1].set_title(r"$score(X_t,t)$ y-dir")
+        axs[1][1].set_xlabel("Y")
+        axs[1][1].set_ylabel("t")
+        axs[1][1].set_ylim([0, T])
+        fig.colorbar(sca4, ax=axs[1][1])
+        plt.show()
 
 
 if __name__ == "__main__":
