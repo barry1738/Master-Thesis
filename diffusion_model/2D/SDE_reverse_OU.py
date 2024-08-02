@@ -35,6 +35,7 @@ std = lambda t: np.sqrt(
     + sigma**2 / (2 * beta) * (1 - np.exp(-2 * beta * t))
 )
 Xh_0 = np.random.multivariate_normal(mu(T).flatten(), std(T) ** 2 * np.eye(2), N).T
+# print(f'Xh_0.shape = {Xh_0.shape}')
 
 # Ornstein-Uhenbeck process
 f = lambda x, t: -beta * x
@@ -43,7 +44,6 @@ s = lambda x, t: -(x - mu(t)) / std(t)**2
 
 # Euler-Maruyama method
 for i in range(M, 0, -1):
-    print(i)
     ti = i * dt
     Xh_0 = (
         Xh_0

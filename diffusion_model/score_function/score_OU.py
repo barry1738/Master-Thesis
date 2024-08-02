@@ -70,7 +70,7 @@ def main():
     wb_params = model.state_dict()
 
     # Training data
-    m = 5000  # number of training samples
+    m = 1000  # number of training samples
     m_test = 1 * m  # number of testing samples
 
     # SDE parameters
@@ -183,7 +183,7 @@ def main():
             break
 
         # ... Display the cost function ...
-        if epoch % 100 == 0:
+        if (epoch + 1) % 100 == 0:
             print(f"Epoch: {epoch}, Loss: {loss[epoch].item():.4e}, eta: {eta:.2e}")
 
         # ... resampling ...
