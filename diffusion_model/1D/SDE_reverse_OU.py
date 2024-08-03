@@ -52,7 +52,7 @@ for i in range(M, 0, -1):
                  + g(Xh_0[:, i],ti) * np.sqrt(dt) * np.random.randn(N)
 
 # Compute mean and std from discrete data
-mu_sde = np.mean(Xh_0[:, 0])
+mu_sde = np.sum(Xh_0[:, 0]) / N
 std_sde = np.sqrt(np.sum((Xh_0[:, 0] - mu_sde) ** 2) / N)
 
 print("--------------------")
