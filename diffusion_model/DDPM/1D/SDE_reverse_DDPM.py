@@ -14,19 +14,16 @@ from scipy.stats import norm
 
 # numerical setup
 T = 10  # terminal time
-M = 11  # number of iterations
+M = 1000  # number of iterations
 dt = T / M  # time step size
 N = 2000  # number of particles
 # ... parameters in f and g ...
-beta = np.sort(np.random.rand(M))
+beta = np.linspace(1.0, M, M) * dt**2
 alpha = 1 - beta
 alpha_bar = np.zeros(M)
 alpha_bar[0] = alpha[0]
 for i in range(1, M):
     alpha_bar[i] = alpha[i] * alpha_bar[i-1]
-print(f'beta = {beta[:10]}')
-print(f'alpha = {alpha[:10]}')
-print(f'alpha_bar = {alpha_bar[:10]}')
 # ... check approximations ...
 sigma_tilde = np.append(
     beta[0], np.sqrt((1 - alpha[1:]) * (1 - alpha_bar[:-1]) / (1 - alpha_bar[1:]))
