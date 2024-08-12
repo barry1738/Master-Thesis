@@ -75,7 +75,7 @@ def main():
 
     # Training data
     m = 5000  # number of training samples
-    m_test = 1 * m  # number of testing samples
+    m_test = int(1 * m)  # number of testing samples
 
     # SDE parameters
     T = 10.0
@@ -237,6 +237,11 @@ def main():
     y_test = functional_call(model, wb_params, torch.tensor(x_test, device=device))
     s_test = score_exact(Xt, t)
 
+    # Compute the 2-norm error
+    # ||A||_2 = ( sum_i,j( abs(a_ij)^2 ) ) ^ (1/2)
+    error_2norm = np.linalg.norm(y_test.cpu().detach().numpy() - s_test)
+    print(f"Error 2-norm: {error_2norm:.6e}")
+
 
     # Plot the results
     if dim == 1:
@@ -255,53 +260,6 @@ def main():
         axs[1].set_title(r"$score(X_t,t)$")
         axs[1].set_ylim([0, T])
         fig.colorbar(sca2, ax=axs[1])
-        plt.show()
-
-    elif dim == 2:
-        fig, axs = plt.subplots(2, 2)
-        sca1 = axs[0][0].scatter(
-            x_test[:, 0],
-            x_test[:, -1],
-            c=y_test[:, 0].cpu().detach().numpy(),
-            s=5,
-            cmap="coolwarm",
-        )
-        axs[0][0].set_title(r"$score_N(X_t,t)$ x-dir")
-        axs[0][0].set_xlabel("X")
-        axs[0][0].set_ylabel("t")
-        axs[0][0].set_ylim([0, T])
-        fig.colorbar(sca1, ax=axs[0][0])
-
-        sca2 = axs[0][1].scatter(
-            x_test[:, 0], x_test[:, -1], c=s_test[:, 0], s=5, cmap="coolwarm"
-        )
-        axs[0][1].set_title(r"$score(X_t,t)$ x-dir")
-        axs[0][1].set_xlabel("X")
-        axs[0][1].set_ylabel("t")
-        axs[0][1].set_ylim([0, T])
-        fig.colorbar(sca2, ax=axs[0][1])
-
-        sca3 = axs[1][0].scatter(
-            x_test[:, 1],
-            x_test[:, -1],
-            c=y_test[:, 1].cpu().detach().numpy(),
-            s=5,
-            cmap="coolwarm",
-        )
-        axs[1][0].set_title(r"$score_N(X_t,t)$ y-dir")
-        axs[1][0].set_xlabel("Y")
-        axs[1][0].set_ylabel("t")
-        axs[1][0].set_ylim([0, T])
-        fig.colorbar(sca3, ax=axs[1][0])
-
-        sca4 = axs[1][1].scatter(
-            x_test[:, 1], x_test[:, -1], c=s_test[:, 1], s=5, cmap="coolwarm"
-        )
-        axs[1][1].set_title(r"$score(X_t,t)$ y-dir")
-        axs[1][1].set_xlabel("Y")
-        axs[1][1].set_ylabel("t")
-        axs[1][1].set_ylim([0, T])
-        fig.colorbar(sca4, ax=axs[1][1])
         plt.show()
 
 
