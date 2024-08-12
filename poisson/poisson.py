@@ -1,3 +1,26 @@
+"""
+Poisson equation using neural network with PyTorch.
+
+Equation:
+    Laplace(u) = f(x, y), (x, y) in [0, 1] x [0, 1]
+
+Boundary condition:
+    u(x, 0) = u(x, 1) = u(0, y) = u(1, y) = 0
+
+Exact solution:
+    u(x, y) = sin(pi * x) * sin(pi * y)
+
+Loss function:
+    L = alpha * ||Laplace(u(x, p)) - f(x, y)||^2 + beta * ||u_b(x, p) - u_exact||^2
+
+
+Auto-differentiation Package: PyTorch
+torch.func, previously known as “functorch”, is JAX-like composable function
+transforms for PyTorch.
+url: https://pytorch.org/docs/stable/func.html
+"""
+
+# Import the necessary libraries
 import torch
 import scipy
 import numpy as np
@@ -5,21 +28,26 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from torch.func import functional_call, vmap, jacrev, vjp, grad
 
+# Set the default data type to double precision
 torch.set_default_dtype(torch.float64)
+# Set the device to GPU if available, otherwise use CPU
 device = "cuda" if torch.cuda.is_available() else "cpu"
 # device = "cpu"
 print("device = ", device)
 
 
 class CreateMesh:
+    """Create the mesh for the Poisson equation."""
     def __init__(self) -> None:
         pass
 
     def interior_points(self, nx):
+        """Generate the interior points of the domain."""
         x = 1.0 * scipy.stats.qmc.LatinHypercube(d=2).random(n=nx)
         return x
 
     def boundary_points(self, nx):
+        """Generate the boundary points of the domain."""
         left_x = np.hstack(
             (
                 0.0 * np.ones((nx, 1)),
@@ -49,6 +77,7 @@ class CreateMesh:
 
 
 class Model(nn.Module):
+    """Define the neural network model."""
     def __init__(self, in_dim, h_dim, out_dim):
         super().__init__()
         # input layer
@@ -66,6 +95,7 @@ class Model(nn.Module):
         self.act = nn.Sigmoid()
 
     def forward(self, x, y):
+        """Forward pass of the model."""
         input = torch.hstack((x, y))
         input = self.act(self.ln_in(input))
         for layer in self.hidden:
@@ -92,6 +122,13 @@ class Model(nn.Module):
         """Compute the second directional derivative of the model output with respect to y."""
         output, vjpfunc = vjp(lambda primal: self.forward_dy(model, params, x, primal), y)
         return vjpfunc(torch.ones_like(output))[0]
+    
+
+def weights_init(model):
+    """Initialize the weights of the neural network."""
+    if isinstance(model, nn.Linear):
+        # nn.init.xavier_uniform_(model.weight.data, gain=1)
+        nn.init.xavier_normal_(model.weight.data, gain=1)
 
 
 def exact_sol(x, y):
@@ -113,7 +150,6 @@ def rhs(x, y):
 
 def compute_loss_Res(model, params, x, y, Rf_inner):
     """Compute the residual loss function for the PDE residual term."""
-    # laplace = forward_dxx(model, params, x, y) + forward_dyy(model, params, x, y)
     laplace = model.forward_dxx(model, params, x, y) + model.forward_dyy(model, params, x, y)
     loss_Res = laplace - Rf_inner
     return loss_Res
@@ -153,6 +189,7 @@ def main():
     print(f"inner_x = {x_inner.shape}")
     print(f"boundary_x = {x_bd.shape}")
 
+    # Convert the numpy arrays to torch tensors
     X_inner_torch = torch.from_numpy(x_inner).to(device)
     X_bd_torch = torch.from_numpy(x_bd).to(device)
     X_inner_valid_torch = torch.from_numpy(x_inner_valid).to(device)
@@ -163,28 +200,28 @@ def main():
     X_inner_valid, Y_inner_valid = X_inner_valid_torch[:, 0].reshape(-1, 1), X_inner_valid_torch[:, 1].reshape(-1, 1)
     X_bd_valid, Y_bd_valid = X_bd_valid_torch[:, 0].reshape(-1, 1), X_bd_valid_torch[:, 1].reshape(-1, 1)
 
-    model = Model(2, [40], 1).to(device)  # hidden layers = [...](list)
+    # Define the neural network model and the layers of the model, then print the model
+    model = Model(2, [40], 1).to(device)  # hidden layers = [...](list), ex: [40], [10, 10] etc.
     print(model)
 
-    # get the training parameters and total number of parameters
-    # u_params = dict(model.named_parameters())
+    # Reinitalize the weights of the model
+    model.apply(weights_init)
+    # Get the parameters of the model and name it as u_params
     u_params = model.state_dict()
     # for key, value in u_params.items():
     #     print(f"{key} = {value}")
 
-    # u_params_copy = model.state_dict().copy()
+    # Compute the total number of parameters
+    totWb = sum(p.numel() for p in model.parameters())
+    print(f"Number of parameters = {totWb}")
 
-    # 10 times the initial parameters
-    u_params_flatten = nn.utils.parameters_to_vector(u_params.values()) * 10.0
-    nn.utils.vector_to_parameters(u_params_flatten, u_params.values())
-    print(f"Number of parameters = {u_params_flatten.numel()}")
-
+    # Compute the exact solution and the right-hand side of the Poisson equation
     Rf_inner = rhs(X_inner, Y_inner)
     Rf_bd = exact_sol(X_bd, Y_bd)
     Rf_inner_valid = rhs(X_inner_valid, Y_inner_valid)
     Rf_bd_valid = exact_sol(X_bd_valid, Y_bd_valid)
 
-    # Start training
+    # Define the optimization parameters
     Niter = 1000
     tol = 1.0e-10
     mu = 1.0e5
@@ -193,8 +230,12 @@ def main():
     alpha = 1.0
     beta = 1.0
 
+    # Start training the model
     for step in range(Niter):
-        # Compute Jacobian matrix
+        # Compute Jacobian matrix of the loss function without the square root 
+        # of the number of samples.
+        # This process will get the Jacobian matrix of the loss function with
+        # respect to the parameters of the model in the form of a dictionary.
         jac_res_dict = vmap(
             jacrev(compute_loss_Res, argnums=1),
             in_dims=(None, None, 0, 0, 0),
@@ -207,22 +248,21 @@ def main():
             out_dims=0,
         )(model, u_params, X_bd, Y_bd, Rf_bd)
 
-        # Stack the Jacobian matrices
+        # Stack the Jacobian matrices into a single matrix
         Jac_res = torch.hstack([v.view(X_inner.size(0), -1) for v in jac_res_dict.values()])
         Jac_b = torch.hstack([v.view(X_bd.size(0), -1) for v in jac_b_dict.values()])
 
-        # print(f"jac_res = {Jac_res.size()}")
-        # print(f"jac_b = {Jac_b.size()}")
+        # Divide the Jacobian matrices by the square root of the number of samples
         Jac_res = Jac_res * torch.sqrt(alpha / torch.tensor(X_inner.size(0)))
         Jac_b = Jac_b * torch.sqrt(beta / torch.tensor(X_bd.size(0)))
 
-        # Put into loss functional to get L_vec
+        # Compute the loss function without the square root of the number of samples
         L_vec_res = compute_loss_Res(model, u_params, X_inner, Y_inner, Rf_inner)
         L_vec_b = compute_loss_Bd(model, u_params, X_bd, Y_bd, Rf_bd)
         L_vec_res_valid = compute_loss_Res(model, u_params, X_inner_valid, Y_inner_valid, Rf_inner_valid)
         L_vec_b_valid = compute_loss_Bd(model, u_params, X_bd_valid, Y_bd_valid, Rf_bd_valid)
-        # print(f"loss_Res = {L_vec_res.size()}")
-        # print(f"loss_Bd = {L_vec_b.size()}")
+
+        # Divide the loss vectors by the square root of the number of samples
         L_vec_res = L_vec_res * torch.sqrt(alpha / torch.tensor(X_inner.size(0)))
         L_vec_b = L_vec_b * torch.sqrt(beta / torch.tensor(X_bd.size(0)))
         L_vec_res_valid = L_vec_res_valid / torch.sqrt(torch.tensor(X_inner_valid.size(0)))
@@ -230,15 +270,19 @@ def main():
 
         # Cat Jac_res and Jac_b into J_mat
         J_mat = torch.vstack((Jac_res, Jac_b))
+        # Cat L_vec_res and L_vec_b into L_vec
         L_vec = torch.vstack((L_vec_res, L_vec_b))
-        # print(f"J_mat = {J_mat.size()}")
-        # print(f"L_vec = {L_vec.size()}")
 
-        # Solve the linear system
-        p = qr_decomposition(J_mat, L_vec, mu)
+        # Solve the linear system to get the update parameter
+        # p = qr_decomposition(J_mat, L_vec, mu)
+        p = cholesky(J_mat, L_vec, mu, device)
+
         # Update the parameters
+        # Flatten the parameters of the model
         u_params_vec = nn.utils.parameters_to_vector(u_params.values())
+        # Update the parameters of the model
         u_params_vec = u_params_vec + p
+        # Convert the vector back to the parameters of the model
         nn.utils.vector_to_parameters(u_params_vec, u_params.values())
 
         # Compute the loss function
@@ -249,11 +293,13 @@ def main():
             torch.sum(L_vec_res_valid**2) + torch.sum(L_vec_b_valid**2)
         )
         print(f"step = {step}, loss = {loss.item():.2e}, mu = {mu:.1e}")
+
+        # Save the loss function
         savedloss.append(loss.item())
         saveloss_valid.append(loss_valid.item())
 
         if step % 50 == 0:
-            # Compute the aplha_bar and beta_bar
+            # Compute the gradient of the loss function with respect to the parameters
             dloss_res_dparams = grad(
                 lambda primal: torch.sum(
                     compute_loss_Res(model, primal, X_inner, Y_inner, Rf_inner)**2),
@@ -268,6 +314,7 @@ def main():
             dloss_bd_dparams_flatten = nn.utils.parameters_to_vector(dloss_bd_dparams.values()) / torch.tensor(X_bd.size(0))
             d_loss_bdparams_norm = torch.linalg.norm(dloss_bd_dparams_flatten)
 
+            # Compute the alpha_bar and beta_bar
             alpha_bar = (
                 dloss_res_dparams_norm + d_loss_bdparams_norm
             ) / dloss_res_dparams_norm
@@ -280,15 +327,17 @@ def main():
             beta = (1-0.1) * beta + 0.1 * beta_bar
             print(f"alpha = {alpha:.2f}, beta = {beta:.2f}")
 
-        # Check the convergence
+        # If the loss function is converged, then break the loop.
         if (step == Niter - 1) or (loss < tol):
             break
 
         # Update the parameter mu
         if step % 3 == 0:
             if savedloss[step] > savedloss[step - 1]:
+                # if the loss function is increasing, then increase the mu
                 mu = min(2 * mu, 1e8)
             else:
+                # if the loss function is decreasing, then decrease the mu
                 mu = max(mu / 5, 1e-10)
 
     
@@ -300,14 +349,6 @@ def main():
     ax.set_ylabel("Loss")
     ax.legend()
     plt.show()
-
-    # Update the model parameters
-    # model.load_state_dict(u_params)
-
-    # for key, value in u_params.items():
-    #     print(f"{key} = {value}")
-    # for key, value in u_params_copy.items():
-    #     print(f"{key} = {value}")
 
     # Compute the exact solution
     x = torch.linspace(0, 1, 100, device=device)
@@ -327,8 +368,8 @@ def main():
     axs[1].set_title("Error")
     axs[0].axis("square")
     axs[1].axis("square")
-    plt.colorbar(sca1)
-    plt.colorbar(sca2)
+    plt.colorbar(sca1, shrink=0.5)
+    plt.colorbar(sca2, shrink=0.5)
     plt.show()
 
 if __name__ == "__main__":
