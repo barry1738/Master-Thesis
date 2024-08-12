@@ -70,9 +70,27 @@ def update(frame):
 
 fig, ax = plt.subplots()
 ani = animation.FuncAnimation(
-    fig, update, frames=range(M - 1, 0, -1), interval=1, init_func=init, repeat=False
+    fig,
+    update,
+    frames=range(M - 1, 0, -1),
+    interval=1,
+    init_func=init,
+    repeat=True,
 )
-ani.save("C:\\Users\\barry\\Desktop\\MNIST.gif", writer="pillow", fps=100)
+
+# saving to m4 using ffmpeg writer
+writervideo = animation.PillowWriter(fps=60)
+ani.save("C:\\Users\\barry\\Desktop\\MNIST.gif", writer=writervideo)
+plt.close()
+# ani.save("C:\\Users\\barry\\Desktop\\MNIST.gif", writer="pillow")
+
+# # converting to an html5 video
+# video = ani.to_html5_video()
+# # embedding for the video
+# html = display.HTML(video)
+# # draw the animation
+# display.display(html)
+# plt.close()
 
 # Compute mean and std from discrete data
 mu_sde = Xh_0[:, 0]
