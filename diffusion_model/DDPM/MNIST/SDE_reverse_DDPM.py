@@ -48,7 +48,6 @@ def init():
 
 
 def update(frame):
-    ax.clear()
     # Euler-Maruyama method (backward)
     ti = frame * dt
     Xh_0[:, frame - 1] = (
@@ -63,8 +62,9 @@ def update(frame):
         + sigma_tilde[frame] * np.random.randn(d, N)
     ).flatten()
 
+    ax.clear()
     ax.imshow(Xh_0[:, frame].reshape(28, 28).T, cmap="gray")
-    ax.set_title(f"t = {frame}")
+    ax.set_title(f"Step = {frame}")
     ax.axis("off")
 
 
@@ -75,22 +75,13 @@ ani = animation.FuncAnimation(
     frames=range(M - 1, 0, -1),
     interval=1,
     init_func=init,
-    repeat=True,
+    repeat=False,
 )
 
+# saving to gif using pillow writer
+# ani.save("MNIST.gif", writer="pillow")
 # saving to m4 using ffmpeg writer
-writervideo = animation.PillowWriter(fps=60)
-ani.save("C:\\Users\\barry\\Desktop\\MNIST.gif", writer=writervideo)
-plt.close()
-# ani.save("C:\\Users\\barry\\Desktop\\MNIST.gif", writer="pillow")
-
-# # converting to an html5 video
-# video = ani.to_html5_video()
-# # embedding for the video
-# html = display.HTML(video)
-# # draw the animation
-# display.display(html)
-# plt.close()
+ani.save("MNIST.mp4", writer="ffmpeg", fps=100)
 
 # Compute mean and std from discrete data
 mu_sde = Xh_0[:, 0]
