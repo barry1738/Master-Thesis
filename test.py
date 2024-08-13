@@ -1,17 +1,22 @@
 import torch
-import numpy as np
-import torch.nn as nn
-import matplotlib.pyplot as plt
-from torch.func import functional_call, vjp
+from torch.utils.data import Dataset, DataLoader
 
-x = np.linspace(0, 1.5, 1000).reshape(-1, 1)
-func1 = np.sin(2 * np.pi * x)
-func2 = np.cos(2 * np.pi * x)
-func3 = np.exp(-10 * (x - 1.5)**2)
+# Creating our dataset class
+class Build_Data(Dataset):
+    # Constructor
+    def __init__(self):
+        self.x = torch.arange(-5, 5, 0.1).view(-1, 1)
+        self.func = -5 * self.x + 1
+        self.y = self.func + 0.4 * torch.randn(self.x.size())
+        self.len = self.x.shape[0]
 
-fig, ax = plt.subplots()
-ax.plot(x, func1, label="sin(2 * pi * x)")
-ax.plot(x, func2, label="cos(2 * pi * x)")
-ax.plot(x, func3, label="exp(-10 * (x - 0.5)**2)")
-ax.legend()
-plt.show()
+    # Getting the data
+    def __getitem__(self, index):
+        return self.x[index], self.y[index]
+
+    # Getting length of the data
+    def __len__(self):
+        return self.len
+
+data = Build_Data()
+print(data.__len__())
