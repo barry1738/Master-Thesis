@@ -63,7 +63,7 @@ def cost_function(model, params, xin, yin, sigmaT):
 
 def main():
     # Dimension
-    dim = 2
+    dim = 1
     print(f"* Dimension: {dim}")
 
     # Network parameters
@@ -191,7 +191,7 @@ def main():
 
         # ... Display the cost function ...
         if (epoch + 1) % 100 == 0:
-            print(f"Epoch: {epoch}, Loss: {loss[epoch].item():.4e}, eta: {eta:.2e}")
+            print(f"Epoch: {epoch + 1}, Loss: {loss[epoch].item():.4e}, eta: {eta:.2e}")
 
         # ... resampling ...
         if epoch % 10 == 0:
