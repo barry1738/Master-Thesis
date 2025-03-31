@@ -1,6 +1,9 @@
 """
 Poisson equation using neural network with PyTorch.
 
+OPT = Levenberg-Marquardt (LM)
+Loss function: Mean Square Error (MSE)
+
 Equation:
     Laplace(u) = f(x, y), (x, y) in [0, 1] x [0, 1]
 
@@ -79,7 +82,7 @@ class CreateMesh:
 class Model(nn.Module):
     """Define the neural network model."""
     def __init__(self, in_dim, h_dim, out_dim):
-        super().__init__()
+        super(Model, self).__init__()
         # input layer
         self.ln_in = nn.Linear(in_dim, h_dim[0])
 
@@ -148,16 +151,16 @@ def rhs(x, y):
     return f.reshape(-1, 1)
 
 
-def compute_loss_Res(model, params, x, y, Rf_inner):
+def compute_loss_pde(model, params, x, y, Rf_pde):
     """Compute the residual loss function for the PDE residual term."""
     laplace = model.forward_dxx(model, params, x, y) + model.forward_dyy(model, params, x, y)
-    loss_Res = laplace - Rf_inner
+    loss_Res = laplace - Rf_pde
     return loss_Res
 
-def compute_loss_Bd(model, params, x, y, Rf_bd):
+def compute_loss_bdy(model, params, x, y, Rf_bdy):
     """Compute the boundary loss function for the PDE boundary term."""
     u_pred = functional_call(model, params, (x, y))
-    loss_b = u_pred - Rf_bd
+    loss_b = u_pred - Rf_bdy
     return loss_b
 
 def qr_decomposition(J_mat, diff, mu):
@@ -237,13 +240,13 @@ def main():
         # This process will get the Jacobian matrix of the loss function with
         # respect to the parameters of the model in the form of a dictionary.
         jac_res_dict = vmap(
-            jacrev(compute_loss_Res, argnums=1),
+            jacrev(compute_loss_pde, argnums=1),
             in_dims=(None, None, 0, 0, 0),
             out_dims=0,
         )(model, u_params, X_inner, Y_inner, Rf_inner)
 
         jac_b_dict = vmap(
-            jacrev(compute_loss_Bd, argnums=1),
+            jacrev(compute_loss_bdy, argnums=1),
             in_dims=(None, None, 0, 0, 0),
             out_dims=0,
         )(model, u_params, X_bd, Y_bd, Rf_bd)
@@ -257,10 +260,10 @@ def main():
         Jac_b = Jac_b * torch.sqrt(beta / torch.tensor(X_bd.size(0)))
 
         # Compute the loss function without the square root of the number of samples
-        L_vec_res = compute_loss_Res(model, u_params, X_inner, Y_inner, Rf_inner)
-        L_vec_b = compute_loss_Bd(model, u_params, X_bd, Y_bd, Rf_bd)
-        L_vec_res_valid = compute_loss_Res(model, u_params, X_inner_valid, Y_inner_valid, Rf_inner_valid)
-        L_vec_b_valid = compute_loss_Bd(model, u_params, X_bd_valid, Y_bd_valid, Rf_bd_valid)
+        L_vec_res = compute_loss_pde(model, u_params, X_inner, Y_inner, Rf_inner)
+        L_vec_b = compute_loss_bdy(model, u_params, X_bd, Y_bd, Rf_bd)
+        L_vec_res_valid = compute_loss_pde(model, u_params, X_inner_valid, Y_inner_valid, Rf_inner_valid)
+        L_vec_b_valid = compute_loss_bdy(model, u_params, X_bd_valid, Y_bd_valid, Rf_bd_valid)
 
         # Divide the loss vectors by the square root of the number of samples
         L_vec_res = L_vec_res * torch.sqrt(alpha / torch.tensor(X_inner.size(0)))
@@ -292,7 +295,8 @@ def main():
         loss_valid = (
             torch.sum(L_vec_res_valid**2) + torch.sum(L_vec_b_valid**2)
         )
-        print(f"step = {step}, loss = {loss.item():.2e}, mu = {mu:.1e}")
+        if step % 50 == 0:
+            print(f"step = {step}, loss = {loss.item():.2e}, mu = {mu:.1e}")
 
         # Save the loss function
         savedloss.append(loss.item())
@@ -302,14 +306,14 @@ def main():
             # Compute the gradient of the loss function with respect to the parameters
             dloss_res_dparams = grad(
                 lambda primal: torch.sum(
-                    compute_loss_Res(model, primal, X_inner, Y_inner, Rf_inner)**2),
+                    compute_loss_pde(model, primal, X_inner, Y_inner, Rf_inner)**2),
                 argnums=0)(u_params)
             dloss_res_dparams_flatten = nn.utils.parameters_to_vector(dloss_res_dparams.values()) / torch.tensor(X_inner.size(0))
             dloss_res_dparams_norm = torch.linalg.norm(dloss_res_dparams_flatten)
 
             dloss_bd_dparams = grad(
                 lambda primal: torch.sum(
-                    compute_loss_Bd(model, primal, X_bd, Y_bd, Rf_bd)**2),
+                    compute_loss_bdy(model, primal, X_bd, Y_bd, Rf_bd)**2),
                 argnums=0)(u_params)
             dloss_bd_dparams_flatten = nn.utils.parameters_to_vector(dloss_bd_dparams.values()) / torch.tensor(X_bd.size(0))
             d_loss_bdparams_norm = torch.linalg.norm(dloss_bd_dparams_flatten)
@@ -325,10 +329,13 @@ def main():
             # Update the alpha and beta
             alpha = (1-0.1) * alpha + 0.1 * alpha_bar
             beta = (1-0.1) * beta + 0.1 * beta_bar
-            print(f"alpha = {alpha:.2f}, beta = {beta:.2f}")
+            # print(f"alpha = {alpha:.2f}, beta = {beta:.2f}")
 
         # If the loss function is converged, then break the loop.
         if (step == Niter - 1) or (loss < tol):
+            print(f"--- Reach Tolerance ---")
+            print(f"alpha = {alpha:.2f}, beta = {beta:.2f}")
+            print(f"step = {step}, loss = {loss.item():.2e}, mu = {mu:.1e}")
             break
 
         # Update the parameter mu
@@ -339,8 +346,8 @@ def main():
             else:
                 # if the loss function is decreasing, then decrease the mu
                 mu = max(mu / 5, 1e-10)
-
     
+
     # Plot the loss function
     fig, ax = plt.subplots()
     ax.semilogy(savedloss, "k-", label="training loss")
@@ -351,19 +358,20 @@ def main():
     plt.show()
 
     # Compute the exact solution
-    x = torch.linspace(0, 1, 100, device=device)
-    y = torch.linspace(0, 1, 100, device=device)
-    X, Y = torch.meshgrid(x, y, indexing="ij")
+    x = np.linspace(0, 1, 100, device=device)
+    y = np.linspace(0, 1, 100, device=device)
+    X, Y = np.meshgrid(x, y, indexing="ij")
     X, Y = X.reshape(-1, 1), Y.reshape(-1, 1)
-    U_exact = exact_sol(X, Y).cpu()
-    U_pred = functional_call(model, u_params, (X, Y)).cpu().detach().numpy()
-    # U_pred = model(X, Y).cpu().detach().numpy()
-    Error = torch.abs(U_exact - U_pred)
+    X_tensor, Y_tensor = torch.tensor(X), torch.tensor(Y)
+    U_exact = exact_sol(X_tensor, Y_tensor).cpu().detach().numpy()
+    U_pred = functional_call(model, u_params, (X_tensor, Y_tensor)).cpu().detach().numpy()
+    # U_pred = model(X_tensor, Y_tensor).cpu().detach().numpy()
+    Error = np.abs(U_exact - U_pred)
 
     # Plot the exact solution
     fig, axs = plt.subplots(1, 2)
-    sca1 = axs[0].scatter(X.cpu(), Y.cpu(), c=U_pred)
-    sca2 = axs[1].scatter(X.cpu(), Y.cpu(), c=Error)
+    sca1 = axs[0].scatter(X, Y, c=U_pred)
+    sca2 = axs[1].scatter(X, Y, c=Error)
     axs[0].set_title("Predicted solution")
     axs[1].set_title("Error")
     axs[0].axis("square")
@@ -371,6 +379,7 @@ def main():
     plt.colorbar(sca1, shrink=0.5)
     plt.colorbar(sca2, shrink=0.5)
     plt.show()
+
 
 if __name__ == "__main__":
     main()
